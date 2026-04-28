@@ -11,7 +11,7 @@ Tested on Ubuntu 24.04.4 LTS ARM64 (Parallels VM on macOS). Deploy time: ~60 sec
 | Postfix | SMTP — send and receive mail (ports 25, 587) |
 | Dovecot | IMAP/POP3 — client mail access (ports 143, 993, 110, 995) |
 | OpenDKIM | DKIM email signing (port 8891, internal) |
-| SpamAssassin | Spam filtering with Bayes auto-learn |
+| SpamAssassin | Spam filtering with Bayes auto-learn, Razor, Pyzor, DNSBL, URIBL |
 | Fail2ban | Brute-force protection for SSH, SMTP, IMAP, POP3 |
 | Sieve | Mail filtering rules, auto-move spam to Junk (port 4190) |
 | ufw | Firewall — opens all required ports |
@@ -115,7 +115,54 @@ $domain = 'example.com'  # -> your domain
 4. Configures OpenDKIM — signs outgoing mail, verifies incoming
 5. Configures Postfix — domain, TLS, SASL, DKIM milter, rate limiting, SpamAssassin pipe
 6. Configures Dovecot — IMAP/POP3, SSL, SASL, Sieve + ManageSieve
-7. Configures SpamAssassin — Bayes auto-learn, RBL checks, spam header tagging
+7. Configures SpamAssassin — Bayes auto-learn, Razor, Pyzor, DNSBL, URIBL, custom spam rules
 8. Configures Fail2ban — protects SSH, SMTP, IMAP/POP3, Sieve
 9. Creates global Sieve rule — moves spam to Junk folder
 10. Opens all ports in UFW (including SSH and ManageSieve)
+
+## Load Testing
+
+A Python test suite is included (`stress_test.py`). Runs from macOS host against the VM.
+
+```bash
+# Make sure host IP is in Postfix mynetworks on the VM first
+unset PYTHONHOME && unset PYTHONPATH && /usr/bin/python3 stress_test.py
+```
+
+### Test Suite
+
+| # | Test | Description |
+|---|------|-------------|
+| 1 | Connectivity | TCP check all 7 ports (SMTP, Submission, IMAP, IMAPS, POP3, POP3S, ManageSieve) |
+| 2 | SMTP Single | Send 1 email, verify delivery |
+| 3 | SMTP Batch | Send 100 emails sequentially, measure throughput |
+| 4 | SMTP Concurrent | Send 200 emails via 10 threads, measure throughput |
+| 5 | IMAP Login | Login, select INBOX, count messages |
+| 6 | IMAP Concurrent | 20 simultaneous IMAP sessions |
+| 7 | POP3 Login | Login, stat messages and size |
+| 8 | Spam Detection | Send clean + spam email, verify spam lands in Junk folder |
+| 9 | Fail2ban | 8 wrong password attempts, verify ban triggers |
+| 10 | Sustained Load | 15 seconds at 5 msg/sec, measure stability |
+
+### Benchmarks (Ubuntu 24.04 ARM64, 2 CPU, 2GB RAM, Parallels VM)
+
+| Metric | Result |
+|--------|--------|
+| SMTP batch (100 msg) | **15.1 msg/sec** |
+| SMTP concurrent (200 msg, 10 threads) | **140.7 msg/sec** |
+| IMAP concurrent (20 sessions) | **20/20 in 0.1s** |
+| POP3 read (20 msgs) | **PASS** |
+| Sustained load (5 msg/sec, 15s) | **4.9 msg/sec stable** |
+| Fail2ban trigger | **Ban after 2 bad attempts** |
+| Spam detection (external spam) | **Score 16.7, auto-move to Junk** |
+| Clean mail (legitimate) | **Score 1.4, delivered to Inbox** |
+| Total test time | **~43 seconds** |
+
+## File Structure
+
+```
+PuppetCode/
+├── mailserver.pp   — main manifest (single file, all-in-one)
+├── stress_test.py  — load test suite (run from macOS host)
+└── README.md       — documentation
+```
