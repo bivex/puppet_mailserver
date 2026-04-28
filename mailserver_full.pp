@@ -831,10 +831,13 @@ exec { 'ufw-allow-ssh':
   path    => ['/usr/sbin', '/bin'],
 }
 
-exec { 'ufw-allow-mail':
-  command => 'ufw allow 25/tcp && ufw allow 587/tcp && ufw allow 465/tcp && ufw allow 143/tcp && ufw allow 993/tcp && ufw allow 110/tcp && ufw allow 995/tcp && ufw allow 4190/tcp',
-  unless  => 'ufw status | grep -q "25/tcp"',
-  path    => ['/usr/sbin', '/bin'],
+# Each port gets its own unless check
+['25/tcp', '587/tcp', '465/tcp', '143/tcp', '993/tcp', '110/tcp', '995/tcp', '4190/tcp'].each |\| {
+  exec { "ufw-allow-":
+    command => "ufw allow ",
+    unless  => "ufw status | grep -q ''",
+    path    => ['/usr/sbin', '/bin'],
+  }
 }
 
 exec { 'ufw-allow-web':
