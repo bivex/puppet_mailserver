@@ -76,6 +76,15 @@ exec { 'sync-ssl-chroot':
 # =====================================================
 # MARIADB + MAIL DATABASE
 # =====================================================
+
+# MariaDB tuning
+file { '/etc/mysql/mariadb.conf.d/99-tuning.cnf':
+  ensure  => file,
+  content => "[mysqld]\ninnodb_buffer_pool_size = 256M\nquery_cache_size = 0\nquery_cache_type = 0\n",
+  notify  => Service['mariadb'],
+  require => Package['mariadb-server'],
+}
+
 service { 'mariadb':
   ensure => running,
   enable => true,
@@ -703,6 +712,16 @@ service { 'fail2ban':
 # =====================================================
 # NGINX + PHP-FPM + HTTPS
 # =====================================================
+
+# PHP tuning
+exec { 'php-fpm-tuning':
+  command => "sed -i 's/^pm = .*/pm = ondemand/' /etc/php/8.3/fpm/pool.d/www.conf && sed -i 's/^pm.max_children = .*/pm.max_children = 50/' /etc/php/8.3/fpm/pool.d/www.conf && sed -i 's/;session.gc_maxlifetime = .*/session.gc_maxlifetime = 14400/' /etc/php/8.3/fpm/php.ini",
+  unless  => "grep -q 'pm = ondemand' /etc/php/8.3/fpm/pool.d/www.conf",
+  path    => ['/usr/bin', '/bin'],
+  notify  => Service['php8.3-fpm'],
+  require => Package['php8.3-fpm'],
+}
+
 service { 'php8.3-fpm':
   ensure => running,
   enable => true,
@@ -710,7 +729,7 @@ service { 'php8.3-fpm':
 
 file { '/etc/nginx/sites-available/mail.conf':
   ensure  => file,
-  content => "limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\nserver {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: testing\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    if (!-e \$request_filename) { rewrite ^/admin/(.*)$ /admin/index.php?\$1 last; }\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
+  content => "limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\nserver {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_stapling on;\n  ssl_stapling_verify on;\n  resolver 8.8.8.8 8.8.4.4 valid=300s;\n  resolver_timeout 5s;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: testing\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_read_timeout 900s;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    if (!-e \$request_filename) { rewrite ^/admin/(.*)$ /admin/index.php?\$1 last; }\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
   notify  => Service['nginx'],
 }
 
@@ -744,7 +763,7 @@ service { 'nginx':
 # des_key should be unique per installation — change for production
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:${rc_db_pass}@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:${rc_db_pass}@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','twofactor_gauthenticator'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
   require => Package['roundcube'],
 }
 
@@ -867,6 +886,13 @@ TXT    mail._domainkey.${domain}.  \"v=DKIM1; h=sha256; k=rsa; p=<YOUR_DKIM_KEY 
 
 # DMARC — policy for failed SPF/DKIM
 TXT    _dmarc.${domain}.  \"v=DMARC1; p=quarantine; rua=mailto:postmaster@${domain}; ruf=mailto:postmaster@${domain}; fo=1\"
+
+# CAA records for Let's Encrypt
+@ IN CAA 0 issue \"letsencrypt.org\"
+@ IN CAA 0 issuewild \";\"
+
+# BIMI (Brand Indicators)
+default._bimi.${domain} IN TXT \"v=BIMI1; l=https://mail.${domain}/logo.svg; a=self;\"
 
 # MTA-STS — signal TLS support (RFC 8461)
 TXT    _mta-sts.${domain}.  \"v=STSv1; id=2026042801\"
