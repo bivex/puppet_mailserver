@@ -267,7 +267,14 @@ file { '/etc/dovecot/conf.d/10-master.conf':
 
 file { '/etc/dovecot/conf.d/10-mail.conf':
   ensure  => file,
-  content => "mail_location = maildir:~/Maildir\n",
+  content => "mail_location = maildir:~/Maildir\nnamespace {\n  separator = /\n  inbox = yes\n}\n",
+  require => Package['dovecot-core'],
+  notify  => Service['dovecot'],
+}
+
+file { '/etc/dovecot/conf.d/15-mailboxes.conf':
+  ensure  => file,
+  content => "namespace inbox {\n  mailbox Junk {\n    auto = create\n    special_use = \\Junk\n  }\n  mailbox Trash {\n    auto = create\n    special_use = \\Trash\n  }\n  mailbox Sent {\n    auto = create\n    special_use = \\Sent\n  }\n  mailbox Drafts {\n    auto = create\n    special_use = \\Drafts\n  }\n}\n",
   require => Package['dovecot-core'],
   notify  => Service['dovecot'],
 }
