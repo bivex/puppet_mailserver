@@ -21,6 +21,8 @@ $pkgs = [
   'opendkim-tools',
   'spamassassin',
   'spamc',
+  'razor',
+  'pyzor',
   'fail2ban',
   'mailutils',
   'ufw',
@@ -307,20 +309,92 @@ exec { 'compile-sieve':
 # =====================================================
 # SPAMASSASSIN
 # =====================================================
+$sa_local_cf = "rewrite_header Subject ***** SPAM *****
+report_safe 1
+required_score 4.0
+add_header all Status _YESNO_, score=_SCORE_ required=_REQD_ tests=_TESTS_ autolearn=_AUTOLEARN_
+add_header spam Flag _YESNO_
+add_header all Level _STARS_
+add_header all Checker-Version SpamAssassin _VERSION_ (_RELDATE_) on _HOSTNAME_
+
+# Bayes
+use_bayes 1
+bayes_auto_learn 1
+bayes_auto_learn_threshold_nonspam -0.5
+bayes_auto_learn_threshold_spam 8.0
+bayes_min_ham_num 100
+bayes_min_spam_num 100
+
+# Network tests
+skip_rbl_checks 0
+dnsbl_timeout 10
+use_razor2 1
+razor_config /etc/spamassassin/razor/razor-agent.conf
+use_pyzor 1
+pyzor_options --homedir /etc/spamassassin/pyzor
+
+# DNSBL scores
+score RCVD_IN_BL_SPAMCOP_NET 2.0
+score RCVD_IN_SBL 3.0
+score RCVD_IN_XBL 3.0
+score RCVD_IN_PBL 2.5
+score URIBL_BLACK 3.0
+score URIBL_GREY 1.5
+
+# SPF/DKIM
+score SPF_FAIL 3.0
+score SPF_SOFTFAIL 1.5
+score SPF_HELO_FAIL 2.0
+score DKIM_INVALID 0.5
+score DKIM_ADSP_DISCARD 3.0
+
+# Custom corporate rules
+header SUBJECT_MISSING Subject =~ /^$/
+describe SUBJECT_MISSING Missing Subject header
+score SUBJECT_MISSING 2.0
+
+header FROM_MISSING From =~ /^$/
+describe FROM_MISSING Missing From header
+score FROM_MISSING 3.0
+
+header DATE_MISSING Date =~ /^$/
+describe DATE_MISSING Missing Date header
+score DATE_MISSING 2.5
+
+body VIAGRA_GENERIC /viagra|cialis|pharmacy|meds/i
+describe VIAGRA_GENERIC Common spam keywords
+score VIAGRA_GENERIC 4.0
+
+uri URI_SUSPICIOUS /\\.(xyz|top|click|loan|work|biz|info|pw|tk|ml|ga|cf)\\//i
+describe URI_SUSPICIOUS Suspicious TLD in URL
+score URI_SUSPICIOUS 2.5
+"
+
 file { '/etc/spamassassin/local.cf':
   ensure  => file,
-  content => "rewrite_header Subject ***** SPAM *****
-report_safe             1
-required_score          5.0
-use_bayes               1
-bayes_auto_learn        1
-bayes_auto_learn_threshold_nonspam   0.1
-bayes_auto_learn_threshold_spam      12.0
-skip_rbl_checks         0
-use_razor2              1
-use_pyzor               0
-add_header all Status _YESNO_, score=_SCORE_ required=_REQD_ tests=_TESTS_ autolearn=_AUTOLEARN_
-",
+  content => $sa_local_cf,
+  require => Package['spamassassin'],
+  notify  => Service['spamd'],
+}
+
+exec { 'razor-setup':
+  command => 'razor-admin -home=/etc/spamassassin/razor -create && razor-admin -home=/etc/spamassassin/razor -register',
+  creates => '/etc/spamassassin/razor/razor-agent.conf',
+  path    => ['/usr/bin', '/bin'],
+  require => Package['razor'],
+}
+
+exec { 'pyzor-setup':
+  command => 'mkdir -p /etc/spamassassin/pyzor && pyzor --homedir /etc/spamassassin/pyzor discover',
+  creates => '/etc/spamassassin/pyzor/servers',
+  path    => ['/usr/bin', '/bin'],
+  require => Package['pyzor'],
+}
+
+exec { 'sa-update-rules':
+  command => 'sa-update && sa-compile',
+  creates => '/var/lib/spamassassin/compiled',
+  path    => ['/usr/bin', '/usr/sbin', '/bin'],
   require => Package['spamassassin'],
 }
 
