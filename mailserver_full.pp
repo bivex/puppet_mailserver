@@ -420,14 +420,14 @@ exec { 'master-cf-smtp-filter':
 }
 
 exec { 'master-cf-submission':
-  command => "postconf -M submission/inet=\"submission inet n - y - - smtpd -o smtpd_tls_security_level=encrypt -o smtpd_sasl_auth_enable=yes -o smtpd_tls_auth_only=yes -o smtpd_sasl_type=dovecot -o smtpd_sasl_path=private/auth\"",
+  command => "postconf -M submission/inet=\"submission inet n - y - - smtpd -o smtpd_tls_security_level=encrypt -o smtpd_sasl_auth_enable=yes -o smtpd_tls_auth_only=yes -o smtpd_sasl_type=dovecot -o smtpd_sasl_path=private/auth -o content_filter=spamassassin\"",
   path    => ['/usr/sbin', '/usr/bin'],
   require => Package['postfix'],
   notify  => Service['postfix'],
 }
 
 exec { 'master-cf-submissions':
-  command => "postconf -M submissions/inet=\"submissions inet n - y - - smtpd -o smtpd_tls_wrappermode=yes -o smtpd_sasl_auth_enable=yes -o smtpd_tls_security_level=encrypt -o smtpd_sasl_type=dovecot -o smtpd_sasl_path=private/auth\"",
+  command => "postconf -M submissions/inet=\"submissions inet n - y - - smtpd -o smtpd_tls_wrappermode=yes -o smtpd_sasl_auth_enable=yes -o smtpd_tls_security_level=encrypt -o smtpd_sasl_type=dovecot -o smtpd_sasl_path=private/auth -o content_filter=spamassassin\"",
   path    => ['/usr/sbin', '/usr/bin'],
   require => Package['postfix'],
   notify  => Service['postfix'],
@@ -956,4 +956,5 @@ exec { 'ufw-enable':
   path    => ['/usr/sbin', '/bin'],
   require => [Exec['ufw-allow-ssh'], Exec['ufw-allow-web']],
 }
-exec { 'postfix-global-filter': command => 'postconf -e "content_filter = spamassassin"', path => ['/usr/sbin', '/usr/bin'], notify => Service['postfix'], require => Package['postfix'] }
+exec { 'master-cf-pickup': command => 'postconf -M pickup/unix="pickup unix n - y 60 1 pickup -o content_filter="', path => ['/usr/sbin', '/usr/bin'], notify => Service['postfix'], require => Package['postfix'] }
+exec { 'postfix-unset-global-filter': command => 'postconf -X content_filter', path => ['/usr/sbin', '/usr/bin'], notify => Service['postfix'], require => Package['postfix'] }
