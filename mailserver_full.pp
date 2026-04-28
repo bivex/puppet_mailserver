@@ -475,7 +475,7 @@ file { '/etc/dovecot/conf.d/15-mailboxes.conf':
 # Quota
 file { '/etc/dovecot/conf.d/90-quota.conf':
   ensure  => file,
-  content => "plugin {\n  quota = maildir:User quota\n  quota_rule = *:storage=1G\n  quota_rule2 = Trash:storage=+100M\n  quota_grace = 10%%\n}\nservice quota-status {\n  executable = quota-status -p postfix\n  unix_listener /var/spool/postfix/private/quota-status {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }\n  client_limit = 1\n}\n",
+  content => "plugin {\n  quota = maildir:User quota\n  quota_rule = *:storage=1G\n  quota_rule2 = Trash:storage=+100M\n  quota_grace = 10%%\n}\nprotocol imap {\n  mail_plugins = \$mail_plugins quota imap_quota\n}\nservice quota-status {\n  executable = quota-status -p postfix\n  unix_listener /var/spool/postfix/private/quota-status {\n    mode = 0660\n    user = postfix\n    group = postfix\n  }\n  client_limit = 1\n}\n",
   notify  => Service['dovecot'],
 }
 
