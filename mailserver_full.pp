@@ -96,12 +96,8 @@ exec { 'harden-mariadb':
 }
 
 exec { 'create-mail-db':
-  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS mailserver CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'mailuser'@'localhost' IDENTIFIED BY '${db_pass}';
-GRANT SELECT, INSERT, UPDATE, DELETE ON mailserver.* TO 'mailuser'@'localhost';
-FLUSH PRIVILEGES;
-\"",
-  unless  => "mysql -umailuser -p${db_pass} -e 'USE mailserver' 2>/dev/null",
+  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS mailserver; GRANT ALL PRIVILEGES ON mailserver.* TO 'mailuser'@'localhost' IDENTIFIED BY '${db_pass}'; FLUSH PRIVILEGES;\"",
+  unless  => "mysql -umailuser -p'${db_pass}' -e 'USE mailserver' 2>/dev/null",
   path    => ['/usr/bin'],
   require => [Exec['wait-mariadb'], Exec['harden-mariadb']],
 }
@@ -742,14 +738,14 @@ service { 'nginx':
 # des_key should be unique per installation — change for production
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:RcMail2024!Db@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:${db_pass}@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
   require => Package['roundcube'],
 }
 
 # Roundcube database — stronger password
 exec { 'roundcube-db':
-  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS roundcube CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'roundcube'@'localhost' IDENTIFIED BY 'RcMail2024!Db'; GRANT SELECT, INSERT, UPDATE, DELETE ON roundcube.* TO 'roundcube'@'localhost'; FLUSH PRIVILEGES;\"",
-  unless  => "mysql -uroundcube -p'RcMail2024!Db' -e 'USE roundcube' 2>/dev/null",
+  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS roundcube; GRANT ALL PRIVILEGES ON roundcube.* TO 'roundcube'@'localhost' IDENTIFIED BY '${db_pass}'; FLUSH PRIVILEGES;\"",
+  unless  => "mysql -uroundcube -p'${db_pass}' -e 'USE roundcube' 2>/dev/null",
   path    => ['/usr/bin'],
   require => Service['mariadb'],
 }
