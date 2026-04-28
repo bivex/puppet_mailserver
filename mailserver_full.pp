@@ -293,7 +293,7 @@ smtpd_end_of_data_restrictions = check_policy_service unix:private/quota-status
 # Rate limiting
 smtpd_client_message_rate_limit = 100
 smtpd_client_recipient_rate_limit = 200
-smtpd_client_connection_rate_limit = 30
+smtpd_client_connection_rate_limit = 60
 anvil_rate_time_unit = 60s
 
 # OpenDKIM
