@@ -1,8 +1,22 @@
 # Puppet Mail Server — Corporate Edition
 
 Rapid deployment of a full corporate mail server on Ubuntu 24.04 via Puppet.
+One manifest file, ~60 seconds deploy, ~25 MB disk.
 
-Tested on Ubuntu 24.04.4 LTS ARM64 (Parallels VM on macOS). Deploy time: ~60 seconds.
+Tested on Ubuntu 24.04.4 LTS ARM64 (Parallels VM on macOS).
+
+## Disk Footprint
+
+| Item | Size |
+|------|------|
+| PuppetCode/ (manifest + tests + docs) | 30 KB |
+| Postfix (MTA) | 3.4 MB |
+| Dovecot (IMAP/POP3/Sieve) | 14 MB |
+| OpenDKIM (signing) | 264 KB |
+| SpamAssassin + rules | 3.4 MB |
+| Fail2ban | 3.7 MB |
+| Configs (all) | ~300 KB |
+| **Total mail stack** | **~25 MB** |
 
 ## Components
 
@@ -109,12 +123,12 @@ $domain = 'example.com'  # -> your domain
 
 ## What the manifest does
 
-1. Installs packages (postfix, dovecot, opendkim, spamassassin, fail2ban, sieve, ufw)
+1. Installs packages (postfix, dovecot, opendkim, spamassassin, razor, pyzor, fail2ban, sieve, ufw)
 2. Generates a self-signed SSL certificate
 3. Generates DKIM key pair (2048-bit RSA)
 4. Configures OpenDKIM — signs outgoing mail, verifies incoming
 5. Configures Postfix — domain, TLS, SASL, DKIM milter, rate limiting, SpamAssassin pipe
-6. Configures Dovecot — IMAP/POP3, SSL, SASL, Sieve + ManageSieve
+6. Configures Dovecot — IMAP/POP3, SSL, SASL, Sieve + ManageSieve, auto-create Junk/Trash/Sent/Drafts
 7. Configures SpamAssassin — Bayes auto-learn, Razor, Pyzor, DNSBL, URIBL, custom spam rules
 8. Configures Fail2ban — protects SSH, SMTP, IMAP/POP3, Sieve
 9. Creates global Sieve rule — moves spam to Junk folder
