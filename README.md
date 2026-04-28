@@ -48,6 +48,23 @@ $admin_pass = 'choose_admin_password'
 sudo puppet apply mailserver_full.pp
 ```
 
+## 🔑 Access & Credentials
+
+Once deployed, you can access the web interfaces at the following URLs:
+
+| Service | URL | Login |
+|---------|-----|-------|
+| **Roundcube Webmail** | `https://mail.yourdomain.com/mail/` | `admin@yourdomain.com` |
+| **PostfixAdmin** | `https://mail.yourdomain.com/admin/` | `admin@yourdomain.com` |
+
+**Default Passwords (as set in manifest):**
+- **Admin Password:** `adminpass123`
+- **Database Password:** `maildbpass123`
+- **Roundcube DB Password:** `RcMail2024!Db`
+
+> [!WARNING]
+> Change these passwords in the `mailserver_full.pp` manifest **before** applying it in a production environment.
+
 ## ✅ Production Readiness Checklist
 
 Before moving this stack to production, ensure you complete the following steps:
