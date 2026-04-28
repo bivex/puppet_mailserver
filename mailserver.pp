@@ -423,10 +423,11 @@ service { 'spamd':
 file { '/etc/fail2ban/jail.local':
   ensure  => file,
   content => "[DEFAULT]
-bantime  = 1h
-findtime = 10m
-maxretry = 5
-backend  = systemd
+bantime   = 1h
+findtime  = 10m
+maxretry  = 5
+backend   = systemd
+allowipv6 = auto
 
 [sshd]
 enabled  = true
