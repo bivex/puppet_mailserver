@@ -97,8 +97,8 @@ exec { 'harden-mariadb':
 }
 
 exec { 'create-mail-db':
-  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS mailserver CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON mailserver.* TO 'mailuser'@'localhost' IDENTIFIED BY '${db_pass}'; FLUSH PRIVILEGES;\"",
-  unless  => "mysql -umailuser -p'${db_pass}' -e 'USE mailserver' 2>/dev/null",
+  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS mailserver CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON mailserver.* TO 'mailuser'@'localhost' IDENTIFIED BY '${db_pass}'; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON mailserver.* TO 'mailuser'@'127.0.0.1' IDENTIFIED BY '${db_pass}'; FLUSH PRIVILEGES;\"",
+  unless  => "mysql -umailuser -p'${db_pass}' -h 127.0.0.1 -e 'USE mailserver' 2>/dev/null",
   path    => ['/usr/bin'],
   require => [Exec['wait-mariadb'], Exec['harden-mariadb']],
 }
@@ -750,8 +750,8 @@ file { '/etc/roundcube/config.inc.php':
 
 # Roundcube database — stronger password
 exec { 'roundcube-db':
-  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS roundcube CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON roundcube.* TO 'roundcube'@'localhost' IDENTIFIED BY '${rc_db_pass}'; FLUSH PRIVILEGES;\"",
-  unless  => "mysql -uroundcube -p'${rc_db_pass}' -e 'USE roundcube' 2>/dev/null",
+  command => "mysql -e \"CREATE DATABASE IF NOT EXISTS roundcube CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON roundcube.* TO 'roundcube'@'localhost' IDENTIFIED BY '${rc_db_pass}'; GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON roundcube.* TO 'roundcube'@'127.0.0.1' IDENTIFIED BY '${rc_db_pass}'; FLUSH PRIVILEGES;\"",
+  unless  => "mysql -uroundcube -p'${rc_db_pass}' -h 127.0.0.1 -e 'USE roundcube' 2>/dev/null",
   path    => ['/usr/bin'],
   require => Service['mariadb'],
 }
