@@ -608,6 +608,12 @@ service { 'spamd':
 # =====================================================
 # FAIL2BAN
 # =====================================================
+file { '/etc/fail2ban/filter.d/postfix-sasl.conf':
+  ensure  => file,
+  content => "[Definition]\nfailregex = ^%%(__prefix_line)swarning: [-._\\w]+\\[<HOST>\\]: SASL (?:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:\nignoreregex =\n",
+  notify  => Service['fail2ban'],
+}
+
 file { '/etc/fail2ban/jail.local':
   ensure  => file,
   content => "[DEFAULT]\nbantime   = 1h\nfindtime  = 10m\nmaxretry  = 5\nbackend   = systemd\nallowipv6 = auto\n\n[sshd]\nenabled  = true\nport     = ssh\nfilter   = sshd\nlogpath  = /var/log/auth.log\n\n[postfix]\nenabled  = true\nport     = smtp,submission\nfilter   = postfix\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[postfix-sasl]\nenabled  = true\nport     = smtp,submission\nfilter   = postfix-sasl\nlogpath  = /var/log/mail.log\nmaxretry = 3\nbantime  = 24h\n\n[dovecot]\nenabled  = true\nport     = pop3,pop3s,imap,imaps,submission\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[sieve]\nenabled  = true\nport     = 4190\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n",
