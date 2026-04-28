@@ -9,7 +9,7 @@ $ssl_key  = '/etc/ssl/private/mail.key'
 $pkgs = ['postfix', 'dovecot-core', 'dovecot-imapd', 'dovecot-pop3d', 'mailutils', 'ufw']
 package { $pkgs: ensure => installed }
 
-# ---------- SSL self-signed cert ----------
+# ---------- SSL self-signed certificate ----------
 exec { 'gen-mail-cert':
   command => "openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ${ssl_key} -out ${ssl_cert} -subj '/CN=mail.${domain}'",
   creates => $ssl_cert,
@@ -52,8 +52,8 @@ file { '/etc/postfix/main.cf':
   notify  => Service['postfix'],
 }
 
-# ---------- Dovecot main ----------
-# Note: ssl_cert/ssl_key use < prefix (no closing >) - Dovecot syntax
+# ---------- Dovecot main config ----------
+# Note: ssl_cert/ssl_key use < prefix without closing > — Dovecot file-include syntax
 $dovecot_conf = "protocols = imap pop3
 mail_location = maildir:~/Maildir
 ssl = yes
@@ -78,7 +78,7 @@ file { '/etc/dovecot/conf.d/10-auth.conf':
   notify  => Service['dovecot'],
 }
 
-# Dovecot SASL socket for Postfix + listeners
+# Dovecot SASL socket for Postfix + IMAP/POP3 listeners
 $dovecot_master = "service auth {
   unix_listener /var/spool/postfix/private/auth {
     mode = 0660

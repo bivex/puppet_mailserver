@@ -1,72 +1,72 @@
 # Puppet Mail Server
 
-Быстрое развёртывание почтового сервера (Postfix + Dovecot) на Ubuntu 24.04 через Puppet.
+Rapid deployment of a mail server (Postfix + Dovecot) on Ubuntu 24.04 via Puppet.
 
-Протестировано на Ubuntu 24.04.4 LTS ARM64 (Parallels VM на macOS). Время деплоя — ~28 секунд.
+Tested on Ubuntu 24.04.4 LTS ARM64 (Parallels VM on macOS). Deploy time: ~28 seconds.
 
-## Что ставится
+## Components
 
-| Компонент | Роль |
+| Component | Role |
 |-----------|------|
-| Postfix   | SMTP — отправка и приём писем (порты 25, 587) |
-| Dovecot   | IMAP/POP3 — чтение писем клиентами (порты 143, 993, 110, 995) |
-| mailutils | Утилиты командной строки для почты |
-| ufw       | Фаервол — открывает порты 22, 25, 587, 143, 993, 110, 995 |
+| Postfix   | SMTP — send and receive mail (ports 25, 587) |
+| Dovecot   | IMAP/POP3 — client mail access (ports 143, 993, 110, 995) |
+| mailutils | Command-line mail utilities |
+| ufw       | Firewall — opens ports 22, 25, 587, 143, 993, 110, 995 |
 
-## Быстрый старт
+## Quick Start
 
-### Вариант 1: Parallels VM (macOS → Ubuntu)
+### Option 1: Parallels VM (macOS -> Ubuntu)
 
 ```bash
-# 1. Установить Puppet в VM
+# 1. Install Puppet in VM
 ssh user@<VM_IP> "sudo apt update && sudo apt install -y puppet"
 
-# 2. Скопировать манифест
+# 2. Copy manifest
 scp mailserver.pp user@<VM_IP>:/tmp/
 
-# 3. Применить
+# 3. Apply
 ssh user@<VM_IP> "sudo puppet apply /tmp/mailserver.pp"
 ```
 
-### Вариант 2: Напрямую на сервере
+### Option 2: Directly on server
 
 ```bash
 sudo apt update && sudo apt install -y puppet
 sudo puppet apply mailserver.pp
 ```
 
-## Проверка
+## Verification
 
 ```bash
-# Отправка тестового письма
+# Send test email
 echo "Hello from mailserver" | sendmail user@localhost
 
-# Проверка доставки (подождать 5 сек)
+# Check delivery (wait 5 sec)
 ls ~/Maildir/new/
 cat ~/Maildir/new/*
 
-# Статус сервисов
+# Service status
 systemctl status postfix dovecot
 
-# Открытые порты
+# Open ports
 ss -tlnp | grep -E "25|587|143|993|110|995"
 
-# Фаервол
+# Firewall
 sudo ufw status
 ```
 
-## Настройка
+## Configuration
 
-Перед запуском отредактируй в `mailserver.pp`:
+Before running, edit in `mailserver.pp`:
 
 ```puppet
-$domain = 'example.com'  # → свой домен
+$domain = 'example.com'  # -> your domain
 ```
 
-## Порты
+## Ports
 
-| Порт | Протокол | Назначение |
-|------|----------|------------|
+| Port | Protocol | Purpose |
+|------|----------|---------|
 | 22   | TCP      | SSH |
 | 25   | TCP      | SMTP |
 | 587  | TCP      | Submission (TLS) |
@@ -75,19 +75,19 @@ $domain = 'example.com'  # → свой домен
 | 110  | TCP      | POP3 |
 | 995  | TCP      | POP3S |
 
-## Структура файлов
+## File Structure
 
 ```
 PuppetCode/
-├── mailserver.pp   — основной манифест (один файл, всё включено)
-└── README.md       — документация
+├── mailserver.pp   — main manifest (single file, all-in-one)
+└── README.md       — documentation
 ```
 
-## Что делает манифест
+## What the manifest does
 
-1. Устанавливает пакеты (postfix, dovecot, mailutils, ufw)
-2. Генерирует self-signed SSL сертификат
-3. Настраивает Postfix (main.cf) — домен, TLS, SASL через Dovecot, Maildir
-4. Настраивает Dovecot — IMAP/POP3, SSL, SASL сокет для Postfix
-5. Запускает и включает сервисы
-6. Открывает порты в UFW (включая SSH)
+1. Installs packages (postfix, dovecot, mailutils, ufw)
+2. Generates a self-signed SSL certificate
+3. Configures Postfix (main.cf) — domain, TLS, SASL via Dovecot, Maildir
+4. Configures Dovecot — IMAP/POP3, SSL, SASL socket for Postfix
+5. Starts and enables services
+6. Opens ports in UFW (including SSH)
