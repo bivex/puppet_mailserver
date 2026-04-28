@@ -1,7 +1,8 @@
 # Mail Server — Full Corporate Edition
 # Includes: Postfix, Dovecot, MySQL virtual users, Roundcube, PostfixAdmin,
-#           OpenDKIM, OpenDMARC, SpamAssassin, SPF policy, Fail2ban, Sieve,
-#           Quotas, Postgrey, HTTPS, MTA-STS, Monitoring, Autodiscover, Backup
+#           OpenDKIM (ARC), OpenDMARC, SpamAssassin, SPF policy, PostSRSd,
+#           Fail2ban (recidive), Sieve, Quotas, Postgrey, HTTPS, MTA-STS,
+#           Monitoring, Autodiscover, Backup, TLS hardening
 # Run: sudo puppet apply mailserver_full.pp
 #
 # SECURITY NOTE: Move secrets to Hiera + hiera-eyaml or Vault + puppet-vault_lookup
@@ -29,6 +30,7 @@ $base_pkgs = [
   'fail2ban', 'mailutils', 'ufw',
   'postgrey',
   'postfix-policyd-spf-python',
+  'postsrsd',
 ]
 package { $base_pkgs: ensure => installed }
 
@@ -211,7 +213,7 @@ file { '/var/mail/vmail':
 # =====================================================
 file { '/etc/opendkim.conf':
   ensure  => file,
-  content => "AutoRestart Yes\nAutoRestartRate 10/1h\nSyslog yes\nSyslogSuccess yes\nLogWhy yes\nCanonicalization relaxed/simple\nMode sv\nSubDomains no\nOversignHeaders From\nSignatureAlgorithm rsa-sha256\nUserID opendkim\nSocket inet:8891@localhost\nPidFile /run/opendkim/opendkim.pid\nUMask 007\nExternalIgnoreList refile:/etc/opendkim/TrustedHosts\nInternalHosts refile:/etc/opendkim/TrustedHosts\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\n",
+  content => "AutoRestart Yes\nAutoRestartRate 10/1h\nSyslog yes\nSyslogSuccess yes\nLogWhy yes\nCanonicalization relaxed/simple\nMode sv\nSubDomains no\nOversignHeaders From\nSignatureAlgorithm rsa-sha256\nUserID opendkim\nSocket inet:8891@localhost\nPidFile /run/opendkim/opendkim.pid\nUMask 007\nExternalIgnoreList refile:/etc/opendkim/TrustedHosts\nInternalHosts refile:/etc/opendkim/TrustedHosts\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\n\n# ARC signing\nEnableARC yes\nARCAuthorizationPolicy arc.ar\n",
   notify  => Service['opendkim'],
 }
 
@@ -337,8 +339,11 @@ smtpd_tls_key_file = ${ssl_key}
 smtpd_use_tls = yes
 smtpd_tls_auth_only = yes
 smtpd_tls_security_level = may
-smtp_tls_security_level = may
+smtp_tls_security_level = dane
+smtp_tls_mandatory_protocols = !SSLv2 !SSLv3 !TLSv1 !TLSv1.1
 smtpd_tls_loglevel = 1
+smtpd_tls_mandatory_protocols = !SSLv2 !SSLv3 !TLSv1 !TLSv1.1
+smtpd_tls_mandatory_ciphers = high
 smtpd_tls_received_header = yes
 smtpd_tls_session_cache_timeout = 3600s
 smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache
@@ -349,12 +354,18 @@ smtpd_tls_dh1024_param_file = /etc/postfix/dh2048.pem
 smtpd_sasl_type = dovecot
 smtpd_sasl_path = private/auth
 smtpd_sasl_auth_enable = yes
+smtpd_sender_login_maps = mysql:/etc/postfix/mysql-virtual-email2email.cf
+
+# SRS (Sender Rewriting Scheme) for forwarded mail
+sender_canonical_maps = tcp:127.0.0.1:10001
+sender_canonical_classes = envelope_sender
+header_checks = regexp:/etc/postfix/header_checks
 
 # Restrictions
 smtpd_helo_required = yes
 smtpd_client_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unknown_client_hostname
-smtpd_sender_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_non_fqdn_sender, reject_unknown_sender_domain
-smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination, reject_non_fqdn_recipient, check_policy_service unix:private/policyd-spf, check_policy_service inet:127.0.0.1:10023
+smtpd_sender_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_authenticated_sender_login_mismatch, reject_non_fqdn_sender, reject_unknown_sender_domain
+smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination, reject_non_fqdn_recipient, reject_unverified_recipient, check_policy_service unix:private/policyd-spf, check_policy_service inet:127.0.0.1:10023
 smtpd_relay_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination
 smtpd_data_restrictions = reject_unauth_pipelining
 smtpd_end_of_data_restrictions = check_policy_service unix:private/quota-status
@@ -371,8 +382,7 @@ milter_protocol = 6
 smtpd_milters = inet:localhost:8891, inet:localhost:8893
 non_smtpd_milters = inet:localhost:8891, inet:localhost:8893
 
-# Header privacy
-header_checks = regexp:/etc/postfix/header_checks
+# Header privacy — configured above (header_checks)
 
 # Postscreen (drops botnets before queue)
 postscreen_access_list = permit_mynetworks
@@ -477,6 +487,14 @@ service { 'postgrey':
   require => Package['postgrey'],
 }
 
+# Postgrey whitelist — avoid 5min delay for major providers
+file { '/etc/postgrey/whitelist_clients':
+  ensure  => file,
+  content => "google.com\ngmail.com\noutlook.com\nmicrosoft.com\napple.com\namazonses.com\namazon.com\nyahoo.com\nzoho.com\nmail.ru\nyandex.ru\nicloud.com\nprotonmail.com\nfastmail.com\nsendgrid.net\nmailchimp.com\nmandrillapp.com\nsparkpostmail.com\n",
+  require => Package['postgrey'],
+  notify  => Service['postgrey'],
+}
+
 # =====================================================
 # DOVECOT — Virtual Users + MySQL + Quota + Sieve
 # =====================================================
@@ -496,7 +514,7 @@ file { '/etc/dovecot/dovecot.conf':
 
 file { '/etc/dovecot/conf.d/10-auth.conf':
   ensure  => file,
-  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n",
+  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n\n# Rate-limit failed auth attempts\nauth_failure_delay = 2 secs\nauth_policy_server_timeout = 2000\n",
   notify  => Service['dovecot'],
 }
 
@@ -694,6 +712,13 @@ service { 'spamd':
 file { '/etc/fail2ban/filter.d/postfix-sasl.conf':
   ensure  => file,
   content => "[Definition]\nfailregex = ^%%(__prefix_line)swarning: [-._\\w]+\\[<HOST>\\]: SASL (?:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:\nignoreregex =\n",
+  notify  => Service['fail2ban'],
+}
+
+# Fail2ban recidive — ban repeat offenders for 1 week
+file { '/etc/fail2ban/jail.d/recidive.conf':
+  ensure  => file,
+  content => "[recidive]\nenabled  = true\nfilter   = recidive\nbantime  = 1w\nfindtime = 1d\nmaxretry = 3\nlogpath  = /var/log/fail2ban.log\nbackend  = auto\n",
   notify  => Service['fail2ban'],
 }
 
