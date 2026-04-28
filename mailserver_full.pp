@@ -364,7 +364,7 @@ exec { 'master-cf-submission':
 
 # Submission port — uncomment required -o lines
 exec { 'master-cf-submission-opts':
-  command => "sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_tls_security_level=encrypt/  -o smtpd_tls_security_level=encrypt/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_sasl_auth_enable=yes/  -o smtpd_sasl_auth_enable=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_tls_auth_only=yes/  -o smtpd_tls_auth_only=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o local_header_rewrite_clients=static:all/  -o local_header_rewrite_clients=static:all/' /etc/postfix/master.cf",
+  command => "sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_security_level=encrypt/  -o smtpd_tls_security_level=encrypt/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_sasl_auth_enable=yes/  -o smtpd_sasl_auth_enable=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_auth_only=yes/  -o smtpd_tls_auth_only=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o local_header_rewrite_clients=static:all/  -o local_header_rewrite_clients=static:all/' /etc/postfix/master.cf",
   unless  => 'grep -A10 "^submission " /etc/postfix/master.cf | grep -q "smtpd_tls_security_level=encrypt"',
   path    => ['/bin', '/usr/bin'],
   require => Exec['master-cf-submission'],
