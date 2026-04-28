@@ -64,18 +64,23 @@ def ssl_ctx():
 
 # Default: send via submission (587) with STARTTLS + auth, like a real MUA
 def smtp_send(subject, body, from_addr=None, to_addr=None, port=SUBMISSION,
-              starttls=True, use_ssl=False, auth=None, timeout=10):
+              starttls=True, use_ssl=False, auth=None, timeout=10, extra_headers=None):
     from_addr = from_addr or USER
     to_addr = to_addr or USER
     if auth is None:
         auth = (USER, PASS)
     try:
+        hdrs = ""
+        if extra_headers:
+            for k, v in extra_headers.items():
+                hdrs += f"{k}: {v}\r\n"
         msg = (
             f"From: {from_addr}\r\n"
             f"To: {to_addr}\r\n"
             f"Subject: {subject}\r\n"
             f"Date: {email.utils.formatdate(localtime=True)}\r\n"
             f"Message-ID: <{time.time()}.{port}@{MAILHOST}>\r\n"
+            f"{hdrs}"
             f"\r\n{body}\r\n"
         )
         if use_ssl:
