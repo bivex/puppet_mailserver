@@ -7,7 +7,7 @@ A production-ready, highly secure, and modern mail server stack managed entirely
 - **MTA (Mail Transfer Agent):** Postfix with MySQL backend
 - **MDA (Mail Delivery Agent):** Dovecot with LMTP support
 - **Database:** MariaDB (Virtual users, domains, aliases)
-- **Webmail:** Roundcube (PHP 8.3+)
+- **Webmail:** Roundcube (PHP 8.3+) with 2FA support
 - **Administration:** PostfixAdmin
 - **Security Stack:** SpamAssassin (Bayes), OpenDKIM, OpenDMARC, Policyd-SPF, Postgrey, Postscreen, Fail2ban
 - **Modern Web/Mail Standards:** MTA-STS, TLS-RPT, Autodiscover/Autoconfig (iOS/Outlook/Thunderbird)
@@ -16,13 +16,15 @@ A production-ready, highly secure, and modern mail server stack managed entirely
 
 - **Hardened SMTP:** Postscreen with DNSBL integration, Greylisting, and deep protocol checks.
 - **Full Auth Encryption:** SHA512-CRYPT hashed passwords.
+- **Two-Factor Authentication:** GAuthenticator support for Roundcube.
 - **Header Privacy:** Automatic stripping of internal IP addresses and MUA details from outgoing headers.
 - **Fail2ban Integration:** Pre-configured jails for Postfix, Dovecot, and Roundcube (24h ban for SASL failures).
-- **Inbound Filtering:** Multi-stage spam detection with SpamAssassin + Sieve auto-junk filing.
+- **Inbound Filtering:** Multi-stage spam detection with SpamAssassin + Sieve auto-junk filing (GTUBE validated).
 
 ## 🚀 Modern Connectivity & Reliability
 
 - **SSL/TLS 1.2+:** Forced encryption on all ports with DH parameters and HSTS.
+- **OCSP Stapling:** Enabled for faster SSL validation.
 - **MTA-STS & TLS-RPT:** Enhanced protection against downgrade attacks and visibility into delivery issues.
 - **Client Auto-Config:** Full support for `autoconfig.xml` and `autodiscover.xml`.
 - **Quotas:** Real-time quota enforcement with `quota-status` notifications.
@@ -52,15 +54,15 @@ sudo puppet apply mailserver_full.pp
 
 Once deployed, you can access the web interfaces at the following URLs:
 
-| Service | URL | Login |
-|---------|-----|-------|
+| Service | URL Path | Default Login |
+|---------|----------|---------------|
 | **Roundcube Webmail** | `https://mail.yourdomain.com/mail/` | `admin@yourdomain.com` |
 | **PostfixAdmin** | `https://mail.yourdomain.com/admin/` | `admin@yourdomain.com` |
 
-**Default Passwords (as set in manifest):**
+**Default Passwords (if not changed in manifest):**
 - **Admin Password:** `adminpass123`
-- **Database Password:** `maildbpass123`
-- **Roundcube DB Password:** `RcMail2024!Db`
+- **Mail User DB:** `maildbpass123`
+- **Roundcube DB:** `RcMail2024!Db`
 
 > [!WARNING]
 > Change these passwords in the `mailserver_full.pp` manifest **before** applying it in a production environment.
@@ -71,8 +73,9 @@ Before moving this stack to production, ensure you complete the following steps:
 
 1. **Secrets:** Change all default passwords in the manifest variables.
 2. **Reverse DNS (PTR):** Configure a PTR record for your IP to match your mail hostname (e.g., `IP -> PTR -> mail.yourdomain.com`). This is critical for Gmail/Outlook delivery.
-3. **SSL Certificates:** While the manifest generates self-signed certs, replace them with Let's Encrypt for production. Update the paths in the manifest.
-4. **Validation:** Test your final score via [mail-tester.com](https://www.mail-tester.com). Aim for 10/10.
+3. **SSL Certificates:** While the manifest generates self-signed certs, replace them with Let's Encrypt for production. A helper script is provided at `/usr/local/bin/get-ssl-cert.sh`.
+4. **DNS Records:** Follow the template generated in `/root/dns-records.txt` to set up SPF, DKIM, DMARC, CAA, and BIMI records.
+5. **Validation:** Test your final score via [mail-tester.com](https://www.mail-tester.com). Aim for 10/10.
 
 ## 🧪 Testing
 
@@ -80,7 +83,7 @@ The project includes a comprehensive Python-based stress test suite (`stress_tes
 - Port connectivity and TLS versions.
 - Concurrent IMAP/SMTP sessions.
 - Spam detection (GTUBE) and Sieve movement.
-- Large attachment handling (tested up to 20MB+).
+- Large attachment handling (up to 20MB+).
 - Rate limiting and Fail2ban triggers.
 
 ---
