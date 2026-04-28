@@ -261,7 +261,7 @@ def test_imap_concurrent(conns=15):
     def worker():
         nonlocal ok_count, fail_count
         try:
-            imap = imaplib.IMAP4(VM_IP, IMAP, timeout=10)
+            imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10)
             imap.login(USER, PASS)
             imap.select("INBOX")
             imap.search(None, "ALL")

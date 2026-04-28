@@ -430,17 +430,16 @@ exec { 'master-cf-submission':
 
 # Submission port — uncomment required -o lines
 exec { 'master-cf-submission-opts':
-  command => "sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_security_level=encrypt/  -o smtpd_tls_security_level=encrypt/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_sasl_auth_enable=yes/  -o smtpd_sasl_auth_enable=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_auth_only=yes/  -o smtpd_tls_auth_only=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o local_header_rewrite_clients=static:all/  -o local_header_rewrite_clients=static:all/' /etc/postfix/master.cf",
+  command => "sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_security_level=encrypt/  -o smtpd_tls_security_level=encrypt/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_sasl_auth_enable=yes/  -o smtpd_sasl_auth_enable=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o smtpd_tls_auth_only=yes/  -o smtpd_tls_auth_only=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#  -o local_header_rewrite_clients=static:all/  -o local_header_rewrite_clients=static:all/' /etc/postfix/master.cf && sed -i '/^submission\\s/a\\  -o content_filter=spamassassin' /etc/postfix/master.cf",
   unless  => 'grep -A10 "^submission " /etc/postfix/master.cf | grep -q "smtpd_tls_security_level=encrypt"',
   path    => ['/bin', '/usr/bin'],
   require => Exec['master-cf-submission'],
   notify  => Service['postfix'],
 }
 
-# SMTPS port 465 (submissions)
 exec { 'master-cf-submissions':
-  command => "sed -i 's/^#submissions/submissions/' /etc/postfix/master.cf",
-  unless  => 'grep -q "^submissions " /etc/postfix/master.cf',
+  command => "sed -i 's/^#submissions/submissions/' /etc/postfix/master.cf && sed -i '/^submissions/,/^[^ ]/ s/^#  -o/  -o/' /etc/postfix/master.cf",
+  unless  => 'grep -A10 "^submissions " /etc/postfix/master.cf | grep -q "smtpd_tls_wrappermode=yes"',
   path    => ['/bin', '/usr/bin'],
   require => Package['postfix'],
   notify  => Service['postfix'],
@@ -969,3 +968,4 @@ exec { 'ufw-enable':
   path    => ['/usr/sbin', '/bin'],
   require => [Exec['ufw-allow-ssh'], Exec['ufw-allow-web']],
 }
+exec { 'postfix-global-filter': command => 'postconf -e "content_filter = spamassassin"', path => ['/usr/sbin', '/usr/bin'], notify => Service['postfix'], require => Package['postfix'] }
