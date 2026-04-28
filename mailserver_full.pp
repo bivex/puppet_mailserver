@@ -31,7 +31,7 @@ $web_pkgs = [
   'nginx', 'php8.3-fpm', 'php8.3-mysql', 'php8.3-mbstring',
   'php8.3-imap', 'php8.3-xml', 'php8.3-curl', 'php8.3-zip',
   'php8.3-gd', 'php8.3-intl',
-  'roundcube',
+  'roundcube', 'roundcube-plugins',
   'postfixadmin',
   'certbot', 'python3-certbot-nginx',
 ]
@@ -49,6 +49,15 @@ file { $ssl_key:
   mode  => '0600',
   owner => 'root',
   group => 'root',
+}
+
+# Sync SSL certs into Postfix chroot
+exec { 'sync-ssl-chroot':
+  command => 'mkdir -p /var/spool/postfix/etc/ssl/certs /var/spool/postfix/etc/ssl/private && cp /etc/ssl/certs/mail.pem /var/spool/postfix/etc/ssl/certs/ && cp /etc/ssl/private/mail.key /var/spool/postfix/etc/ssl/private/ && chmod 600 /var/spool/postfix/etc/ssl/private/mail.key',
+  unless  => 'diff -q /etc/ssl/certs/mail.pem /var/spool/postfix/etc/ssl/certs/mail.pem >/dev/null 2>&1 && diff -q /etc/ssl/private/mail.key /var/spool/postfix/etc/ssl/private/mail.key >/dev/null 2>&1',
+  path    => ['/bin', '/usr/bin'],
+  require => [Exec['gen-mail-cert'], File[$ssl_key]],
+  notify  => Service['postfix'],
 }
 
 # =====================================================
@@ -254,9 +263,6 @@ virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-domains.cf
 virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox.cf
 virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-aliases.cf, mysql:/etc/postfix/mysql-virtual-email2email.cf
 
-# Vacation transport (autoreply.example.com -> vacation script)
-transport_maps = hash:/etc/postfix/transport
-
 # TLS
 smtpd_tls_cert_file = ${ssl_cert}
 smtpd_tls_key_file = ${ssl_key}
@@ -264,7 +270,6 @@ smtpd_use_tls = yes
 smtpd_tls_auth_only = yes
 smtpd_tls_security_level = may
 smtp_tls_security_level = may
-lmtp_tls_security_level = may
 smtpd_tls_loglevel = 1
 smtpd_tls_received_header = yes
 smtpd_tls_session_cache_timeout = 3600s
@@ -311,20 +316,6 @@ postscreen_dnsbl_action = enforce
 file { '/etc/postfix/main.cf':
   ensure  => file,
   content => $postfix_main,
-  notify  => Service['postfix'],
-}
-
-# Transport map for vacation (autoreply domain)
-file { '/etc/postfix/transport':
-  ensure  => file,
-  content => "autoreply.${domain} vacation:\n",
-  notify  => Exec['postfix-transport-db'],
-}
-
-exec { 'postfix-transport-db':
-  command => 'postmap /etc/postfix/transport',
-  refreshonly => true,
-  path    => ['/usr/sbin'],
   notify  => Service['postfix'],
 }
 
@@ -669,7 +660,7 @@ service { 'nginx':
 # =====================================================
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','vacation'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n?>",
   require => Package['roundcube'],
 }
 
@@ -696,12 +687,18 @@ file { '/var/lib/roundcube/temp':
   require => Exec['roundcube-schema'],
 }
 
+# Roundcube managesieve plugin config
+file { '/etc/roundcube/plugins/managesieve/config.inc.php':
+  ensure  => file,
+  content => "<?php\n\$config['managesieve_host'] = 'localhost';\n\$config['managesieve_port'] = 4190;\n\$config['managesieve_auth_type'] = '';\n\$config['managesieve_vacation'] = 1;\n?>",
+  require => Package['roundcube-plugins'],
+}
+
 # =====================================================
 # POSTFIXADMIN CONFIG
 # =====================================================
 file { '/etc/postfixadmin/config.local.php':
   ensure  => file,
-  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'md5crypt';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'YES';\n\$CONF['vacation_domain'] = 'autoreply.${domain}';\n\$CONF['password_expiration'] = 'NO';\n?>",
   require => Package['postfixadmin'],
 }
 
