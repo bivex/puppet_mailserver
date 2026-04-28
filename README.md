@@ -52,20 +52,18 @@ sudo puppet apply mailserver_full.pp
 
 ## 🔑 Access & Credentials
 
-Once deployed, you can access the web interfaces at the following URLs:
-
-| Service | URL Path | Default Login |
+| Service | URL Path | Login |
 |---------|----------|---------------|
-| **Roundcube Webmail** | `https://mail.yourdomain.com/mail/` | `admin@yourdomain.com` |
-| **PostfixAdmin** | `https://mail.yourdomain.com/admin/` | `admin@yourdomain.com` |
+| **Roundcube Webmail** | `https://mail.example.com/mail/` | `admin@example.com` |
+| **PostfixAdmin** | `https://mail.example.com/admin/` | `admin@example.com` |
 
-**Default Passwords (if not changed in manifest):**
+**Default Passwords (as set in manifest):**
 - **Admin Password:** `adminpass123`
 - **Mail User DB:** `maildbpass123`
 - **Roundcube DB:** `RcMail2024!Db`
 
-> [!WARNING]
-> Change these passwords in the `mailserver_full.pp` manifest **before** applying it in a production environment.
+> [!TIP]
+> On the current VM, you can access these via `https://10.211.55.11/mail/` and `https://10.211.55.11/admin/`. Accept the self-signed certificate warning to proceed.
 
 ## ✅ Production Readiness Checklist
 
