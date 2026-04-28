@@ -633,7 +633,7 @@ exec { 'postfixadmin-setup':
 }
 
 exec { 'postfixadmin-schema':
-  command => "mysql mailserver < /usr/share/postfixadmin/SQL/mysql.sql",
+  command => "mysql mailserver < /tmp/postfixadmin_schema.sql",
   unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
   path    => ['/usr/bin'],
   require => Exec['postfixadmin-setup'],
