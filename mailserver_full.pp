@@ -89,7 +89,7 @@ INSERT IGNORE INTO domain_admins (username, domain, created, active)
 \"",
   unless  => "mysql -umailuser -p${db_pass} -e \"SELECT 1 FROM mailserver.domain WHERE domain='${domain}'\" 2>/dev/null | grep -q 1",
   path    => ['/usr/bin'],
-  require => Exec['create-mail-db'],
+  require => Exec['postfixadmin-schema'],
 }
 
 # MySQL config files for Postfix/Dovecot
@@ -601,10 +601,9 @@ file { '/etc/postfixadmin/config.local.php':
 # Copy PostfixAdmin schema file
 # Place postfixadmin_schema.sql alongside this .pp file before running
 exec { 'postfixadmin-schema':
-  command => "mysql mailserver < postfixadmin_schema.sql",
+  command => "mysql mailserver < /root/PuppetCode/postfixadmin_schema.sql",
   unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
   path    => ['/usr/bin'],
-  cwd     => '/root',
   require => [Exec['create-mail-db'], File['/etc/postfixadmin/config.local.php']],
 }
 
