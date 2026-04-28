@@ -318,7 +318,7 @@ exec { 'compile-sieve':
 # =====================================================
 $sa_local_cf = "rewrite_header Subject ***** SPAM *****
 report_safe 1
-required_score 4.0
+required_score 5.0
 add_header all Status _YESNO_, score=_SCORE_ required=_REQD_ tests=_TESTS_ autolearn=_AUTOLEARN_
 add_header spam Flag _YESNO_
 add_header all Level _STARS_
@@ -352,7 +352,7 @@ score URIBL_GREY 1.5
 score SPF_FAIL 3.0
 score SPF_SOFTFAIL 1.5
 score SPF_HELO_FAIL 2.0
-score DKIM_INVALID 0.5
+score DKIM_INVALID 0.1
 score DKIM_ADSP_DISCARD 3.0
 
 # Custom corporate rules
