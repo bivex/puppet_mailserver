@@ -598,11 +598,36 @@ def test_edge_cases():
     ok, _ = smtp_send("", "empty subject body")
     log(f"Empty subject — {'delivered' if ok else 'rejected'}", ok=ok)
 
-    # Large body (1 MB)
+    # 1 MB email
     ok, _ = smtp_send("Large email", "X" * 1_000_000, timeout=30)
     log(f"1 MB email — {'delivered' if ok else 'rejected'}", ok=ok)
 
-    # Non-FQDN sender via port 25 (should be rejected)
+    # 15 MB email (Check message_size_limit)
+    log("Sending 15 MB email (this may take time)...")
+    ok, err = smtp_send("Huge email", "Y" * 15_000_000, timeout=60)
+    log(f"15 MB email — {'delivered' if ok else 'rejected (size limit?)'}", ok=ok)
+    if not ok: log(f"Rejection: {err}")
+
+    # UTF-8 Headers
+    ok, _ = smtp_send("=?UTF-8?B?0J/RgNC40LLQtdGC?=", "UTF-8 Subject Test", from_addr=f"\"Юзер\" <{USER}>")
+    log(f"UTF-8 Headers/Subject — {'delivered' if ok else 'rejected'}", ok=ok)
+
+    # Long Headers (10k characters)
+    ok, _ = smtp_send("Long Header Test", "body", headers={"X-Long": "Z" * 10000})
+    log(f"10k character header — {'delivered' if ok else 'rejected'}", ok=ok)
+
+    # Max Recipients (50)
+    recipients = [f"user{i}@{DOMAIN}" for i in range(50)]
+    ok, err = smtp_send("Multi-recipient test", "body", to_addr=", ".join(recipients))
+    log(f"50 recipients at once — {'accepted' if ok else 'rejected'}", ok=ok)
+    if not ok: log(f"Rejection: {err}")
+
+    # Malformed MIME (inconsistent boundary)
+    malformed_body = "Content-Type: multipart/mixed; boundary=fixed\n\n--fixed\nContent-Type: text/plain\n\nBody\n--wrong-boundary--"
+    ok, _ = smtp_send("Malformed MIME", malformed_body)
+    log(f"Malformed MIME — {'accepted' if ok else 'rejected'}", ok=ok)
+
+    # Port 25 non-FQDN sender (should be rejected)
     ok, err = smtp_send("Test", "body", from_addr="user@localhost", port=SMTP, starttls=False, auth=False)
     log(f"Port 25 non-FQDN sender — {'rejected' if not ok else 'accepted'}", ok=not ok)
 
