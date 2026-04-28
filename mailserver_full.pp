@@ -602,10 +602,18 @@ exec { 'roundcube-db':
 }
 
 exec { 'roundcube-schema':
-  command => "bash -c 'mysql roundcube < /usr/share/roundcube/SQL/mysql.initial.sql 2>/dev/null || mysql roundcube < /usr/share/roundcube/SQL/mysql.sql 2>/dev/null; touch /var/lib/roundcube/.schema-loaded'",
+  command => "mysql roundcube < /usr/share/roundcube/SQL/mysql.initial.sql && touch /var/lib/roundcube/.schema-loaded",
   creates => '/var/lib/roundcube/.schema-loaded',
-  path    => ['/usr/bin', '/bin'],
+  path    => ['/usr/bin'],
   require => [Exec['roundcube-db'], Package['roundcube']],
+}
+
+file { '/var/lib/roundcube/temp':
+  ensure => directory,
+  owner  => 'www-data',
+  group  => 'www-data',
+  mode   => '0770',
+  require => Exec['roundcube-schema'],
 }
 
 # =====================================================
@@ -619,9 +627,16 @@ file { '/etc/postfixadmin/config.local.php':
 
 # PostfixAdmin setup password hash
 exec { 'postfixadmin-setup':
-  command => "mysql mailserver -e \"CREATE TABLE IF NOT EXISTS admin (username varchar(255) NOT NULL, password varchar(255) NOT NULL, superadmin tinyint(1) NOT NULL DEFAULT 0, created datetime NOT NULL, modified datetime NOT NULL, active tinyint(1) NOT NULL DEFAULT 1, PRIMARY KEY (username)) ENGINE=InnoDB;\" 2>/dev/null || true",
+  command => "mysql mailserver -e \"CREATE TABLE IF NOT EXISTS admin (username varchar(255) NOT NULL, password varchar(255) NOT NULL, superadmin tinyint(1) NOT NULL DEFAULT 0, created datetime NOT NULL, modified datetime NOT NULL, active tinyint(1) NOT NULL DEFAULT 1, PRIMARY KEY (username)) ENGINE=InnoDB;\"",
   path    => ['/usr/bin'],
   require => Exec['create-mail-db'],
+}
+
+exec { 'postfixadmin-schema':
+  command => "mysql mailserver < /usr/share/postfixadmin/SQL/mysql.sql",
+  unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
+  path    => ['/usr/bin'],
+  require => Exec['postfixadmin-setup'],
 }
 
 # Mailbox creation hook
