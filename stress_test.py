@@ -285,15 +285,6 @@ def test_imap_concurrent(conns=15):
 def test_spam():
     log_section("SPAMASSASSIN + SIEVE", 8)
 
-    # Check SpamAssassin daemon is running (port 783)
-    try:
-        s = socket.create_connection((VM_IP, 783), timeout=3)
-        s.close()
-        log("SpamAssassin spamd (783) — reachable on localhost only")
-    except Exception:
-        # Port 783 is localhost-only, try via sendmail on VM
-        log("SpamAssassin spamd — not reachable from host (expected, localhost-only)")
-
     # SpamAssassin content_filter runs on port 25 (incoming) only.
     # Sieve rule: X-Spam-Flag: YES -> fileinto Junk
     # Test Sieve by sending email with pre-added X-Spam-Flag header.
@@ -373,9 +364,18 @@ def test_header_privacy():
         }
         for header, passed in checks.items():
             if header == "DKIM-Signature":
-                log(f"DKIM-Signature — {'present' if passed else 'MISSING'}", ok=passed)
+                # Verify selector is "mail" not hostname
+                if passed:
+                    sel_ok = "s=mail" in raw
+                    log(f"DKIM-Signature — present, selector=mail {'OK' if sel_ok else 'WRONG'}", ok=sel_ok)
+                else:
+                    log(f"DKIM-Signature — MISSING", ok=False)
             else:
                 log(f"{header} — {'stripped' if passed else 'NOT stripped'}", ok=passed)
+
+        # Check DMARC Authentication-Results header
+        dmarc_ok = "Authentication-Results" in raw and "dmarc" in raw.lower()
+        log(f"DMARC Authentication-Results — {'present' if dmarc_ok else 'not found (expected for self-mail)'}")
 
         imap.logout()
     except Exception as e:
@@ -450,10 +450,10 @@ def test_postfixadmin():
 
 
 # =====================================================
-# 12. AUTODISCOVER / AUTOCONFIG
+# 12. AUTODISCOVER / AUTOCONFIG / MTA-STS
 # =====================================================
 def test_autoconfig():
-    log_section("AUTODISCOVER + AUTOCONFIG", 12)
+    log_section("AUTODISCOVER + AUTOCONFIG + MTA-STS", 12)
     try:
         opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_ctx()))
 
@@ -466,8 +466,14 @@ def test_autoconfig():
         xml = resp.read().decode()
         ok = "Autodiscover" in xml or "IMAP" in xml
         log(f"Autodiscover XML — {'valid' if ok else 'INVALID'}", ok=ok)
+
+        # MTA-STS policy
+        resp = opener.open(f"https://{VM_IP}/.well-known/mta-sts.txt", timeout=10)
+        policy = resp.read().decode()
+        sts_ok = "STSv1" in policy and "enforce" in policy and MAILHOST in policy
+        log(f"MTA-STS policy — {'valid' if sts_ok else 'INVALID'}", ok=sts_ok)
     except Exception as e:
-        log(f"Autoconfig — {e}", ok=False)
+        log(f"Autoconfig/MTA-STS — {e}", ok=False)
 
 
 # =====================================================
@@ -516,6 +522,17 @@ def test_https():
         log(f"HTTPS /mail/ — {resp.status} OK")
     except Exception as e:
         log(f"HTTPS /mail/ — {e}", ok=False)
+
+    # Security headers
+    try:
+        req = urllib.request.Request(f"https://{VM_IP}/mail/")
+        resp = urllib.request.urlopen(req, context=ssl_ctx(), timeout=10)
+        hsts = resp.headers.get("Strict-Transport-Security", "")
+        xfo = resp.headers.get("X-Frame-Options", "")
+        log(f"HSTS header — {hsts if hsts else 'MISSING'}", ok=bool(hsts))
+        log(f"X-Frame-Options — {xfo if xfo else 'MISSING'}", ok=bool(xfo))
+    except Exception as e:
+        log(f"Security headers — {e}", ok=False)
 
 
 # =====================================================
@@ -569,10 +586,9 @@ def test_sustained(duration=10, rate=3):
 def test_edge_cases():
     log_section("EDGE CASES", 17)
 
-    # Non-existent recipient — should bounce (accepted then bounced, or rejected)
+    # Non-existent recipient — should be rejected at SMTP
     ok, err = smtp_send("Test", "body", to_addr=f"nobody@{DOMAIN}")
-    # Accepted for delivery = OK (will bounce later), rejected = also OK
-    log(f"Non-existent recipient — {'accepted (bounce later)' if ok else f'rejected: {err}'}")
+    log(f"Non-existent recipient — {'rejected' if not ok else 'accepted (bounce later)'}", ok=not ok)
 
     # Empty subject
     ok, _ = smtp_send("", "empty subject body")
@@ -590,6 +606,11 @@ def test_edge_cases():
     ok, err = smtp_send("Relay", "body", from_addr="ext@other.com", to_addr="ext@other.com",
                          port=SMTP, starttls=False, auth=False)
     log(f"Open relay attempt — {'blocked' if not ok else 'OPEN RELAY!'}", ok=not ok)
+
+    # SPF: forged sender via port 25 from non-authorized IP
+    ok, err = smtp_send("SPF test", "body", from_addr=f"forged@{DOMAIN}", to_addr=USER,
+                         port=SMTP, starttls=False, auth=False)
+    log(f"SPF forged sender (port 25) — {'blocked' if not ok else 'accepted'}", ok=not ok)
 
 
 # =====================================================

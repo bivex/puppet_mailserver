@@ -1,6 +1,7 @@
 -- PostfixAdmin 3.3 database schema
 -- Matches the tables created by postfixadmin upgrade.php
 -- PK uses natural keys (domain varchar, username varchar, address varchar)
+-- utf8mb4 + foreign keys + indexes for production use
 
 CREATE TABLE IF NOT EXISTS admin (
     username varchar(255) NOT NULL,
@@ -14,7 +15,7 @@ CREATE TABLE IF NOT EXISTS admin (
     token varchar(255) NOT NULL DEFAULT '',
     token_validity datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     PRIMARY KEY (username)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS domain (
     domain varchar(255) NOT NULL,
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS domain (
     active tinyint(1) NOT NULL DEFAULT 1,
     password_expiry int(11) DEFAULT 0,
     PRIMARY KEY (domain)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS domain_admins (
     id int(11) NOT NULL AUTO_INCREMENT,
@@ -38,8 +39,10 @@ CREATE TABLE IF NOT EXISTS domain_admins (
     domain varchar(255) NOT NULL,
     created datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     active tinyint(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (id),
+    INDEX idx_domain_admins_username (username),
+    INDEX idx_domain_admins_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mailbox (
     username varchar(255) NOT NULL,
@@ -57,8 +60,10 @@ CREATE TABLE IF NOT EXISTS mailbox (
     token varchar(255) NOT NULL DEFAULT '',
     token_validity datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     password_expiry datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
-    PRIMARY KEY (username)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (username),
+    INDEX idx_mailbox_domain (domain),
+    CONSTRAINT fk_mailbox_domain FOREIGN KEY (domain) REFERENCES domain(domain) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS alias (
     address varchar(255) NOT NULL,
@@ -67,8 +72,10 @@ CREATE TABLE IF NOT EXISTS alias (
     created datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     modified datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     active tinyint(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (address)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (address),
+    INDEX idx_alias_domain (domain),
+    CONSTRAINT fk_alias_domain FOREIGN KEY (domain) REFERENCES domain(domain) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS alias_domain (
     alias_domain varchar(255) NOT NULL DEFAULT '',
@@ -76,8 +83,10 @@ CREATE TABLE IF NOT EXISTS alias_domain (
     created datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     modified datetime NOT NULL DEFAULT '2000-01-01 00:00:00',
     active tinyint(1) NOT NULL DEFAULT 1,
-    PRIMARY KEY (alias_domain)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (alias_domain),
+    INDEX idx_alias_domain_target (target_domain),
+    CONSTRAINT fk_alias_domain_target FOREIGN KEY (target_domain) REFERENCES domain(domain) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS log (
     id int(11) NOT NULL AUTO_INCREMENT,
@@ -86,8 +95,10 @@ CREATE TABLE IF NOT EXISTS log (
     domain varchar(255) NOT NULL,
     action varchar(255) NOT NULL,
     data text NOT NULL,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (id),
+    INDEX idx_log_domain (domain),
+    INDEX idx_log_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS vacation (
     email varchar(255) NOT NULL,
@@ -100,8 +111,9 @@ CREATE TABLE IF NOT EXISTS vacation (
     activefrom timestamp NOT NULL DEFAULT '2000-01-01 00:00:00',
     activeuntil timestamp NOT NULL DEFAULT '2038-01-18 00:00:00',
     interval_time int(11) NOT NULL DEFAULT 0,
-    PRIMARY KEY (email)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+    PRIMARY KEY (email),
+    INDEX idx_vacation_domain (domain)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS vacation_notification (
     id int(11) NOT NULL AUTO_INCREMENT,
@@ -110,21 +122,21 @@ CREATE TABLE IF NOT EXISTS vacation_notification (
     notified_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     CONSTRAINT vacation_notification_pkey UNIQUE (on_vacation, notified)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS quota (
     username varchar(255) NOT NULL,
     path varchar(100) NOT NULL,
     current bigint(20) NOT NULL DEFAULT 0,
     PRIMARY KEY (username, path)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS quota2 (
     username varchar(255) NOT NULL,
     bytes bigint(20) NOT NULL DEFAULT 0,
     messages int(11) NOT NULL DEFAULT 0,
     PRIMARY KEY (username)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS config (
     id int(11) NOT NULL AUTO_INCREMENT,
@@ -132,7 +144,7 @@ CREATE TABLE IF NOT EXISTS config (
     value varchar(20) NOT NULL DEFAULT '',
     PRIMARY KEY (id),
     UNIQUE KEY name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS fetchmail (
     id int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -160,4 +172,4 @@ CREATE TABLE IF NOT EXISTS fetchmail (
     modified timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     src_port int(11) NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
