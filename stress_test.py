@@ -183,7 +183,7 @@ def test_submission():
     ok, err = smtp_send("Test 465", "via 465", port=SMTPS, use_ssl=True, auth=(USER, PASS))
     log(f"465 SMTPS+SASL — {'OK' if ok else f'FAIL: {err}'}", ok=ok)
 
-    ok, _ = smtp_send("No auth", "rejected", port=SUBMISSION, starttls=True, auth=None)
+    ok, _ = smtp_send("No auth", "rejected", port=SUBMISSION, starttls=True, auth=False)
     log(f"587 no auth — rejected as expected", ok=not ok)
 
     ok, _ = smtp_send("Wrong pass", "rejected", port=SUBMISSION, starttls=True, auth=(USER, "wrongpass"))
@@ -583,12 +583,12 @@ def test_edge_cases():
     log(f"1 MB email — {'delivered' if ok else 'rejected'}", ok=ok)
 
     # Non-FQDN sender via port 25 (should be rejected)
-    ok, err = smtp_send("Test", "body", from_addr="user@localhost", port=SMTP, starttls=False, auth=None)
+    ok, err = smtp_send("Test", "body", from_addr="user@localhost", port=SMTP, starttls=False, auth=False)
     log(f"Port 25 non-FQDN sender — {'rejected' if not ok else 'accepted'}", ok=not ok)
 
     # Open relay attempt via port 25
     ok, err = smtp_send("Relay", "body", from_addr="ext@other.com", to_addr="ext@other.com",
-                         port=SMTP, starttls=False, auth=None)
+                         port=SMTP, starttls=False, auth=False)
     log(f"Open relay attempt — {'blocked' if not ok else 'OPEN RELAY!'}", ok=not ok)
 
 
