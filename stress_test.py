@@ -203,11 +203,11 @@ def test_spam_detection():
     n, _ = send_email("Quarterly report", "Please find the quarterly report attached.", count=1)
     time.sleep(5)
 
-    # Spam email
+    # Spam email — send from local domain to pass restrictions
     n_spam, _ = send_email(
         "CHEAP MEDS BUY NOW",
         "Click http://pharmacy.top/viagra for free pills! Make money fast!",
-        from_addr=f"spam@scam.xyz",
+        from_addr=f"{USER}@{DOMAIN}",
         count=1,
     )
     time.sleep(5)
@@ -241,6 +241,18 @@ def test_spam_detection():
 # 6. FAIL2BAN TEST
 # =====================================================
 def test_fail2ban_bruteforce(attempts=8):
+    # Unban first in case of previous test
+    try:
+        import subprocess
+        subprocess.run(
+            ["sshpass", "-p", PASS, "ssh", "-o", "StrictHostKeyChecking=no",
+             f"{USER}@{VM_IP}",
+             f"echo '{PASS}' | sudo -S fail2ban-client set dovecot unbanip {VM_IP.rsplit('.', 1)[0] + '.2'} 2>/dev/null; "
+             f"echo '{PASS}' | sudo -S fail2ban-client set sieve unbanip {VM_IP.rsplit('.', 1)[0] + '.2'} 2>/dev/null"],
+            capture_output=True, timeout=10
+        )
+    except:
+        pass
     print(f"\n9. FAIL2BAN BRUTE FORCE TEST ({attempts} bad logins)")
     print("-"*60)
     banned = False
