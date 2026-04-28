@@ -1,6 +1,6 @@
 # Mail Server — Full Corporate Edition
 # Includes: Postfix, Dovecot, MySQL virtual users, Roundcube, PostfixAdmin,
-#           OpenDKIM (ARC), OpenDMARC, SpamAssassin, SPF policy, PostSRSd,
+#           OpenDKIM, OpenDMARC, SpamAssassin, SPF policy, PostSRSd,
 #           Fail2ban (recidive), Sieve, Quotas, Postgrey, HTTPS, MTA-STS,
 #           Monitoring, Autodiscover, Backup, TLS hardening
 # Run: sudo puppet apply mailserver_full.pp
@@ -213,7 +213,7 @@ file { '/var/mail/vmail':
 # =====================================================
 file { '/etc/opendkim.conf':
   ensure  => file,
-  content => "AutoRestart Yes\nAutoRestartRate 10/1h\nSyslog yes\nSyslogSuccess yes\nLogWhy yes\nCanonicalization relaxed/simple\nMode sv\nSubDomains no\nOversignHeaders From\nSignatureAlgorithm rsa-sha256\nUserID opendkim\nSocket inet:8891@localhost\nPidFile /run/opendkim/opendkim.pid\nUMask 007\nExternalIgnoreList refile:/etc/opendkim/TrustedHosts\nInternalHosts refile:/etc/opendkim/TrustedHosts\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\n\n# ARC signing\nEnableARC yes\nARCAuthorizationPolicy arc.ar\n",
+  content => "AutoRestart Yes\nAutoRestartRate 10/1h\nSyslog yes\nSyslogSuccess yes\nLogWhy yes\nCanonicalization relaxed/simple\nMode sv\nSubDomains no\nOversignHeaders From\nSignatureAlgorithm rsa-sha256\nUserID opendkim\nSocket inet:8891@localhost\nPidFile /run/opendkim/opendkim.pid\nUMask 007\nExternalIgnoreList refile:/etc/opendkim/TrustedHosts\nInternalHosts refile:/etc/opendkim/TrustedHosts\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\n",
   notify  => Service['opendkim'],
 }
 
@@ -514,7 +514,7 @@ file { '/etc/dovecot/dovecot.conf':
 
 file { '/etc/dovecot/conf.d/10-auth.conf':
   ensure  => file,
-  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n\n# Rate-limit failed auth attempts\nauth_failure_delay = 2 secs\nauth_policy_server_timeout = 2000\n",
+  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n\n# Rate-limit failed auth attempts\nauth_failure_delay = 2 secs\n",
   notify  => Service['dovecot'],
 }
 
