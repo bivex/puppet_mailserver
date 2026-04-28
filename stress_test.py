@@ -245,8 +245,11 @@ def test_imap():
         imap.login(USER, "wrongpassword")
         log("IMAP wrong password — NOT rejected!", ok=False)
         imap.logout()
-    except imaplib.IMAP4.error:
-        log("IMAP wrong password — rejected correctly")
+    except imaplib.IMAP4.error as e:
+        if b"Plaintext authentication disallowed" in str(e).encode() or b"PRIVACYREQUIRED" in str(e).encode():
+            log("IMAP wrong password — correctly rejected plaintext/privacy (SECURE)")
+        else:
+            log("IMAP wrong password — rejected correctly")
 
 
 def test_imap_concurrent(conns=15):
