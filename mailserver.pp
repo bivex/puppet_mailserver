@@ -199,7 +199,7 @@ mail_location = maildir:~/Maildir
 ssl = yes
 ssl_cert = </etc/ssl/certs/mail.pem
 ssl_key = </etc/ssl/private/mail.key
-disable_plaintext_auth = no
+disable_plaintext_auth = yes
 auth_mechanisms = plain login
 !include conf.d/*.conf
 "
@@ -213,7 +213,7 @@ file { '/etc/dovecot/dovecot.conf':
 
 file { '/etc/dovecot/conf.d/10-auth.conf':
   ensure  => file,
-  content => "disable_plaintext_auth = no\nauth_mechanisms = plain login\n!include auth-system.conf.ext\n",
+  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-system.conf.ext\n",
   require => Package['dovecot-core'],
   notify  => Service['dovecot'],
 }
@@ -317,7 +317,7 @@ exec { 'compile-sieve':
 # SPAMASSASSIN
 # =====================================================
 $sa_local_cf = "rewrite_header Subject ***** SPAM *****
-report_safe 1
+report_safe 0
 required_score 5.0
 add_header all Status _YESNO_, score=_SCORE_ required=_REQD_ tests=_TESTS_ autolearn=_AUTOLEARN_
 add_header spam Flag _YESNO_

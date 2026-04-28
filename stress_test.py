@@ -374,8 +374,9 @@ def test_header_privacy():
                 log(f"{header} — {'stripped' if passed else 'NOT stripped'}", ok=passed)
 
         # Check DMARC Authentication-Results header
-        dmarc_ok = "Authentication-Results" in raw and "dmarc" in raw.lower()
-        log(f"DMARC Authentication-Results — {'present' if dmarc_ok else 'not found (expected for self-mail)'}")
+        # Note: OpenDMARC adds this. On a fresh install with self-sent mail, it might say 'pass' or 'none'.
+        dmarc_ok = "Authentication-Results" in raw and ("dmarc=" in raw.lower() or "opendmarc" in raw.lower())
+        log(f"OpenDMARC Results header — {'present' if dmarc_ok else 'MISSING'}", ok=dmarc_ok)
 
         imap.logout()
     except Exception as e:
@@ -470,8 +471,8 @@ def test_autoconfig():
         # MTA-STS policy
         resp = opener.open(f"https://{VM_IP}/.well-known/mta-sts.txt", timeout=10)
         policy = resp.read().decode()
-        sts_ok = "STSv1" in policy and "enforce" in policy and MAILHOST in policy
-        log(f"MTA-STS policy — {'valid' if sts_ok else 'INVALID'}", ok=sts_ok)
+        sts_ok = "STSv1" in policy and "testing" in policy and MAILHOST in policy
+        log(f"MTA-STS policy — {'valid (mode:testing)' if sts_ok else 'INVALID or mode not testing'}", ok=sts_ok)
     except Exception as e:
         log(f"Autoconfig/MTA-STS — {e}", ok=False)
 
@@ -607,10 +608,12 @@ def test_edge_cases():
                          port=SMTP, starttls=False, auth=False)
     log(f"Open relay attempt — {'blocked' if not ok else 'OPEN RELAY!'}", ok=not ok)
 
-    # SPF: forged sender via port 25 from non-authorized IP
+    # SPF: forged sender via port 25 from non-authorized IP (should be rejected by policyd-spf)
     ok, err = smtp_send("SPF test", "body", from_addr=f"forged@{DOMAIN}", to_addr=USER,
                          port=SMTP, starttls=False, auth=False)
-    log(f"SPF forged sender (port 25) — {'blocked' if not ok else 'accepted'}", ok=not ok)
+    log(f"SPF forged sender (port 25) — {'blocked correctly' if not ok else 'ACCEPTED (SPF FAIL)'}", ok=not ok)
+    if not ok:
+        log(f"SPF block reason: {err}")
 
 
 # =====================================================

@@ -103,7 +103,7 @@ FLUSH PRIVILEGES;
 \"",
   unless  => "mysql -umailuser -p${db_pass} -e 'USE mailserver' 2>/dev/null",
   path    => ['/usr/bin'],
-  require => Exec['wait-mariadb'],
+  require => [Exec['wait-mariadb'], Exec['harden-mariadb']],
 }
 
 # Seed PostfixAdmin tables: domain, admin, mailbox, aliases
@@ -279,12 +279,19 @@ ReportCommand \"/usr/sbin/sendmail -t\"
   notify  => Service['opendmarc'],
 }
 
-# Ensure opendmarc run directory exists
-file { '/run/opendmarc':
+# OpenDMARC systemd override for RuntimeDirectory
+file { '/etc/systemd/system/opendmarc.service.d':
   ensure => directory,
-  owner  => 'opendmarc',
-  group  => 'opendmarc',
-  mode   => '0750',
+}
+file { '/etc/systemd/system/opendmarc.service.d/override.conf':
+  ensure  => file,
+  content => "[Service]\nRuntimeDirectory=opendmarc\nRuntimeDirectoryMode=0750\n",
+  notify  => [Exec['opendmarc-systemd-reload'], Service['opendmarc']],
+}
+exec { 'opendmarc-systemd-reload':
+  command     => 'systemctl daemon-reload',
+  refreshonly => true,
+  path        => ['/bin', '/usr/bin'],
 }
 
 service { 'opendmarc':
@@ -356,7 +363,7 @@ anvil_rate_time_unit = 60s
 milter_default_action = accept
 milter_protocol = 6
 smtpd_milters = inet:localhost:8891, inet:localhost:8893
-non_smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891, inet:localhost:8893
 
 # Header privacy
 header_checks = regexp:/etc/postfix/header_checks
@@ -472,13 +479,13 @@ file { '/etc/dovecot/dovecot-sql.conf.ext':
 
 file { '/etc/dovecot/dovecot.conf':
   ensure  => file,
-  content => "protocols = imap pop3 lmtp sieve\nmail_location = maildir:/var/mail/vmail/%d/%n/Maildir\nssl = yes\nssl_cert = </etc/ssl/certs/mail.pem\nssl_key = </etc/ssl/private/mail.key\nssl_min_protocol = TLSv1.2\nssl_prefer_server_ciphers = yes\nssl_cipher_list = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384\nssl_dh = </usr/share/dovecot/dh.pem\ndisable_plaintext_auth = no\nauth_mechanisms = plain login\nfirst_valid_uid = 5000\nlast_valid_uid = 5000\nfirst_valid_gid = 5000\nlast_valid_gid = 5000\nlogin_trusted_networks = 127.0.0.1\n!include conf.d/*.conf\n",
+  content => "protocols = imap pop3 lmtp sieve\nmail_location = maildir:/var/mail/vmail/%d/%n/Maildir\nssl = yes\nssl_cert = </etc/ssl/certs/mail.pem\nssl_key = </etc/ssl/private/mail.key\nssl_min_protocol = TLSv1.2\nssl_prefer_server_ciphers = yes\nssl_cipher_list = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384\nssl_dh = </usr/share/dovecot/dh.pem\ndisable_plaintext_auth = yes\nauth_mechanisms = plain login\nfirst_valid_uid = 5000\nlast_valid_uid = 5000\nfirst_valid_gid = 5000\nlast_valid_gid = 5000\nlogin_trusted_networks = 127.0.0.1\n!include conf.d/*.conf\n",
   notify  => Service['dovecot'],
 }
 
 file { '/etc/dovecot/conf.d/10-auth.conf':
   ensure  => file,
-  content => "disable_plaintext_auth = no\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n",
+  content => "disable_plaintext_auth = yes\nauth_mechanisms = plain login\n!include auth-sql.conf.ext\n",
   notify  => Service['dovecot'],
 }
 
@@ -603,7 +610,7 @@ service { 'dovecot':
 # SPAMASSASSIN
 # =====================================================
 $sa_local_cf = "rewrite_header Subject ***** SPAM *****
-report_safe 1
+report_safe 0
 required_score 5.0
 add_header all Status _YESNO_, score=_SCORE_ required=_REQD_ tests=_TESTS_ autolearn=_AUTOLEARN_
 add_header spam Flag _YESNO_
@@ -701,7 +708,7 @@ service { 'php8.3-fpm':
 
 file { '/etc/nginx/sites-available/mail.conf':
   ensure  => file,
-  content => "server {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n  # Rate limiting for login endpoints\n  limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: enforce\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    try_files \$uri \$uri/ /index.php?\$args;\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
+  content => "limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\nserver {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: testing\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    if (!-e \$request_filename) { rewrite ^/admin/(.*)$ /admin/index.php?\$1 last; }\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
   notify  => Service['nginx'],
 }
 
@@ -823,7 +830,7 @@ file { '/etc/logrotate.d/mail':
 # =====================================================
 file { '/usr/local/bin/mail-healthcheck.sh':
   ensure  => file,
-  content => "#!/bin/bash\n# Mail server health check — runs every 10 min via cron\nMAILTO=\"postmaster@${domain}\"\nFAILED=''\n\nfor svc in postfix dovecot nginx opendkim opendmarc mariadb php8.3-fpm fail2ban postgrey spamd; do\n  systemctl is-active --quiet \$svc || FAILED=\"\$FAILED \$svc\"\ndone\n\n# Check SMTP port\nnc -z -w5 localhost 25 >/dev/null 2>&1 || FAILED=\"\$FAILED smtp:25\"\nnc -z -w5 localhost 587 >/dev/null 2>&1 || FAILED=\"\$FAILED submission:587\"\nnc -z -w5 localhost 993 >/dev/null 2>&1 || FAILED=\"\$FAILED imaps:993\"\n\n# Check MySQL connectivity\nmysql -umailuser -p${db_pass} -e 'SELECT 1' mailserver >/dev/null 2>&1 || FAILED=\"\$FAILED mysql\"\n\n# Check queue size\nQSIZE=\$(mailq 2>/dev/null | tail -1 | awk '{print \$5}')\nif [ -n \"\$QSIZE\" ] && [ \"\$QSIZE\" -gt 500 ] 2>/dev/null; then\n  FAILED=\"\$FAILED queue_high:\$QSIZE\"\nfi\n\n# Check disk space (<10% free triggers alert)\nDFREE=\$(df /var/mail/vmail --output=pcent | tail -1 | tr -d ' %')\nif [ -n \"\$DFREE\" ] && [ \"\$DFREE\" -gt 90 ] 2>/dev/null; then\n  FAILED=\"\$FAILED disk_\${DFREE}%25_used\"\nfi\n\n# Check SSL cert expiry (<14 days triggers alert)\nif openssl x509 -checkend 1209600 -noout -in ${ssl_cert} 2>/dev/null; then\n  : # cert OK\nelse\n  FAILED=\"\$FAILED ssl_expiring_soon\"\nfi\n\nif [ -n \"\$FAILED\" ]; then\n  echo \"[\$(date)] ALERT: services down:\$FAILED on \$(hostname)\" >> /var/log/mail-healthcheck.log\n  logger -p mail.error \"mail-healthcheck: services down:\$FAILED\"\n  echo \"ALERT on \$(hostname): services down:\$FAILED\" | mail -s \"[MAIL ALERT] \$(hostname) — services down\" \$MAILTO\nfi\n",
+  content => "#!/bin/bash\n# Mail server health check — runs every 10 min via cron\nMAILTO=\"postmaster@${domain}\"\nFAILED=''\n\nfor svc in postfix dovecot nginx opendkim opendmarc mariadb php8.3-fpm fail2ban postgrey spamd; do\n  systemctl is-active --quiet \$svc || FAILED=\"\$FAILED \$svc\"\ndone\n\n# Check SMTP port\nnc -z -w5 localhost 25 >/dev/null 2>&1 || FAILED=\"\$FAILED smtp:25\"\nnc -z -w5 localhost 587 >/dev/null 2>&1 || FAILED=\"\$FAILED submission:587\"\nnc -z -w5 localhost 993 >/dev/null 2>&1 || FAILED=\"\$FAILED imaps:993\"\n\n# Check MySQL connectivity (using credentials file)\nmysql --defaults-extra-file=/root/.my-backup.cnf -e 'SELECT 1' mailserver >/dev/null 2>&1 || FAILED=\"\$FAILED mysql\"\n\n# Check queue size\nQSIZE=\$(mailq 2>/dev/null | tail -1 | awk '{print \$5}')\nif [ -n \"\$QSIZE\" ] && [ \"\$QSIZE\" -gt 500 ] 2>/dev/null; then\n  FAILED=\"\$FAILED queue_high:\$QSIZE\"\nfi\n\n# Check disk space (<10% free triggers alert)\nDFREE=\$(df /var/mail/vmail --output=pcent | tail -1 | tr -d ' %')\nif [ -n \"\$DFREE\" ] && [ \"\$DFREE\" -gt 90 ] 2>/dev/null; then\n  FAILED=\"\$FAILED disk_\${DFREE}%25_used\"\nfi\n\n# Check SSL cert expiry (<14 days triggers alert)\nif openssl x509 -checkend 1209600 -noout -in ${ssl_cert} 2>/dev/null; then\n  : # cert OK\nelse\n  FAILED=\"\$FAILED ssl_expiring_soon\"\nfi\n\nif [ -n \"\$FAILED\" ]; then\n  echo \"[\$(date)] ALERT: services down:\$FAILED on \$(hostname)\" >> /var/log/mail-healthcheck.log\n  logger -p mail.error \"mail-healthcheck: services down:\$FAILED\"\n  echo \"ALERT on \$(hostname): services down:\$FAILED\" | mail -s \"[MAIL ALERT] \$(hostname) — services down\" \$MAILTO\nfi\n",
   mode    => '0755',
   owner   => 'root',
   group   => 'root',
@@ -854,7 +861,7 @@ A      mail.${domain}.  YOUR_SERVER_IP
 TXT    ${domain}.  \"v=spf1 mx a ip4:YOUR_SERVER_IP ~all\"
 
 # DKIM — public key from OpenDKIM (get actual key: sudo cat /etc/opendkim/keys/mail.txt)
-TXT    mail._domainkey.${domain}.  \"v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApp88Gjgv+fO5UPnrZVrxCfiYrve0pg5yDb75vesO/ZPjveBzjYnrvNj8WcI2Ejjx1xKnD3xmotcdhRsJMczopA4BTu9tzPvNngCWiXXLSVd5zMj71jCnb3llkNEgbqAGHpdb38pzmQght8dgJTXsjm48s3FQyfTmwzqolv6hxmiO5ffbES+fOGdGFKMIor8fEmbOwUZOmdFUnjYwGz8MbYxl+MicojJ7ujEF53kxtSiPVED6FBuYOcH1+6GHSN+Yn3CZ1C75NoSsz+41j1DpYAFO5gLCmZqkWJ+hW/d3eR2haahdtEeAr6h6GX1R2I7HpXEvHGPMOADuFC3hfOh+JQIDAQAB\"
+TXT    mail._domainkey.${domain}.  \"v=DKIM1; h=sha256; k=rsa; p=<YOUR_DKIM_KEY — run: sudo cat /etc/opendkim/keys/mail.txt>\"
 
 # DMARC — policy for failed SPF/DKIM
 TXT    _dmarc.${domain}.  \"v=DMARC1; p=quarantine; rua=mailto:postmaster@${domain}; ruf=mailto:postmaster@${domain}; fo=1\"
@@ -918,7 +925,20 @@ cron { 'mail-backup':
 # =====================================================
 file { '/usr/local/bin/get-ssl-cert.sh':
   ensure  => file,
-  content => "#!/bin/bash\n# Run this AFTER DNS points to this server:\n#   certbot --nginx -d mail.${domain} -d ${domain}\n#\n# After cert is installed, update Roundcube config:\n#   Remove verify_peer=false / allow_self_signed=true from\n#   imap_conn_options, smtp_conn_options, managesieve_conn_options\n\necho \"Run: certbot --nginx -d mail.${domain} -d ${domain}\"\n",
+  content => "#!/bin/bash
+# Run this AFTER DNS points to this server:
+#   certbot --nginx -d mail.${domain} -d ${domain}
+
+if certbot --nginx -d mail.${domain} -d ${domain}; then
+  echo \"Certificate installed. Cleaning up Roundcube security bypasses...\"
+  sed -i \"s/'verify_peer' => false/'verify_peer' => true/g\" /etc/roundcube/config.inc.php
+  sed -i \"s/'verify_peer_name' => false/'verify_peer_name' => true/g\" /etc/roundcube/config.inc.php
+  sed -i \"s/'allow_self_signed' => true/'allow_self_signed' => false/g\" /etc/roundcube/config.inc.php
+  systemctl restart nginx
+else
+  echo \"Certbot failed. Check DNS and try again.\"
+fi
+",
   mode    => '0755',
 }
 
