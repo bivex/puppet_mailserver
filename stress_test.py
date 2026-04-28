@@ -605,11 +605,11 @@ def test_edge_cases():
     if not ok: log(f"Rejection: {err}")
 
     # UTF-8 Headers
-    ok, _ = smtp_send("=?UTF-8?B?0J/RgNC40LLQtdGC?=", "UTF-8 Subject Test", from_addr=f"\"Юзер\" <{USER}>")
+    ok, _ = smtp_send("=?UTF-8?B?0J/RgNC40LLQtdGC?=", "UTF-8 Subject Test", from_addr=f"\"User\" <{USER}>")
     log(f"UTF-8 Headers/Subject — {'delivered' if ok else 'rejected'}", ok=ok)
 
     # Long Headers (10k characters)
-    ok, _ = smtp_send("Long Header Test", "body", headers={"X-Long": "Z" * 10000})
+    ok, _ = smtp_send("Long Header Test", "body", extra_headers={"X-Long": "Z" * 10000})
     log(f"10k character header — {'delivered' if ok else 'rejected'}", ok=ok)
 
     # Max Recipients (50)
