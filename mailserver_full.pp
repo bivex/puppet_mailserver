@@ -1,7 +1,7 @@
 # Mail Server — Full Corporate Edition
 # Includes: Postfix, Dovecot, MySQL virtual users, Roundcube, PostfixAdmin,
 #           OpenDKIM, SpamAssassin, Fail2ban, Sieve, Quotas, Vacation,
-#           Mailman, Autodiscover, Backup, Nginx+PHP
+#           Postgrey, HTTPS, Monitoring, Autodiscover, Backup, Nginx+PHP
 # Run: sudo puppet apply mailserver_full.pp
 
 $domain     = 'example.com'
@@ -22,6 +22,7 @@ $base_pkgs = [
   'opendkim', 'opendkim-tools',
   'spamassassin', 'spamc', 'razor', 'pyzor',
   'fail2ban', 'mailutils', 'ufw',
+  'postgrey',
 ]
 package { $base_pkgs: ensure => installed }
 
@@ -230,7 +231,7 @@ service { 'opendkim':
 }
 
 # =====================================================
-# POSTFIX — Virtual Users + MySQL
+# POSTFIX — Virtual Users + MySQL + Hardened
 # =====================================================
 $postfix_main = "myhostname = ${hostname}
 mydomain = ${domain}
@@ -253,6 +254,9 @@ virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-domains.cf
 virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox.cf
 virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-aliases.cf, mysql:/etc/postfix/mysql-virtual-email2email.cf
 
+# Vacation transport (autoreply.example.com -> vacation script)
+transport_maps = hash:/etc/postfix/transport
+
 # TLS
 smtpd_tls_cert_file = ${ssl_cert}
 smtpd_tls_key_file = ${ssl_key}
@@ -260,6 +264,12 @@ smtpd_use_tls = yes
 smtpd_tls_auth_only = yes
 smtpd_tls_security_level = may
 smtp_tls_security_level = may
+lmtp_tls_security_level = may
+smtpd_tls_loglevel = 1
+smtpd_tls_received_header = yes
+smtpd_tls_session_cache_timeout = 3600s
+smtpd_tls_session_cache_database = btree:\${data_directory}/smtpd_scache
+smtp_tls_session_cache_database = btree:\${data_directory}/smtp_scache
 
 # SASL
 smtpd_sasl_type = dovecot
@@ -268,16 +278,34 @@ smtpd_sasl_auth_enable = yes
 
 # Restrictions
 smtpd_helo_required = yes
-smtpd_client_restrictions = permit_sasl_authenticated, permit_mynetworks
+smtpd_client_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unknown_client_hostname
 smtpd_sender_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_non_fqdn_sender, reject_unknown_sender_domain
-smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination, reject_non_fqdn_recipient
+smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination, reject_non_fqdn_recipient, check_policy_service inet:127.0.0.1:10023
 smtpd_relay_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination
+smtpd_data_restrictions = reject_unauth_pipelining
+smtpd_end_of_data_restrictions = check_policy_service unix:private/quota-status
+
+# Rate limiting
+smtpd_client_message_rate_limit = 100
+smtpd_client_recipient_rate_limit = 200
+smtpd_client_connection_rate_limit = 30
+anvil_rate_time_unit = 60s
 
 # OpenDKIM
 milter_default_action = accept
 milter_protocol = 6
 smtpd_milters = inet:localhost:8891
 non_smtpd_milters = inet:localhost:8891
+
+# Header privacy
+header_checks = regexp:/etc/postfix/header_checks
+
+# Postscreen (drops botnets before queue)
+postscreen_access_list = permit_mynetworks
+postscreen_dnsbl_sites = zen.spamhaus.org*3 bl.spameatingmonkey.net*2 dnsbl.sorbs.net*2
+postscreen_dnsbl_threshold = 5
+postscreen_greet_action = enforce
+postscreen_dnsbl_action = enforce
 "
 
 file { '/etc/postfix/main.cf':
@@ -286,7 +314,28 @@ file { '/etc/postfix/main.cf':
   notify  => Service['postfix'],
 }
 
-# SpamAssassin transport + SMTP filter in master.cf
+# Transport map for vacation (autoreply domain)
+file { '/etc/postfix/transport':
+  ensure  => file,
+  content => "autoreply.${domain} vacation:\n",
+  notify  => Exec['postfix-transport-db'],
+}
+
+exec { 'postfix-transport-db':
+  command => 'postmap /etc/postfix/transport',
+  refreshonly => true,
+  path    => ['/usr/sbin'],
+  notify  => Service['postfix'],
+}
+
+# Header checks — strip internal info on outbound, tag on inbound
+file { '/etc/postfix/header_checks':
+  ensure  => file,
+  content => "/^Received:\\s+from \\[127\\.0\\.0\\.1\\]/ IGNORE\n/^User-Agent:/ IGNORE\n/^X-Mailer:/ IGNORE\n/^X-Originating-IP:/ IGNORE\n/^X-PHP-Originating-Script:/ IGNORE\n",
+  notify  => Service['postfix'],
+}
+
+# SpamAssassin transport in master.cf
 exec { 'master-cf-spamassassin':
   command => 'grep -q "^spamassassin" /etc/postfix/master.cf || (printf "spamassassin unix -     n       n       -       -       pipe\n  user=debian-spamd argv=/usr/bin/spamc -f -e /usr/sbin/sendmail -oi -f \${sender} \${recipient}\n" >> /etc/postfix/master.cf)',
   unless  => 'grep -q "^spamassassin" /etc/postfix/master.cf',
@@ -295,7 +344,7 @@ exec { 'master-cf-spamassassin':
   notify  => Service['postfix'],
 }
 
-# Add content_filter to smtp listener (avoids loop — pickup has no filter)
+# Add content_filter to smtp listener
 exec { 'master-cf-smtp-filter':
   command => 'grep -A1 "^smtp.*inet" /etc/postfix/master.cf | grep -q "content_filter" || sed -i "/^smtp\\s.*inet/a\\  -o content_filter=spamassassin" /etc/postfix/master.cf',
   unless  => 'grep -A1 "^smtp.*inet" /etc/postfix/master.cf | grep -q "content_filter"',
@@ -304,10 +353,28 @@ exec { 'master-cf-smtp-filter':
   notify  => Service['postfix'],
 }
 
-# Submission port in master.cf
+# Submission port 587 — enable with proper SASL+TLS options
 exec { 'master-cf-submission':
-  command => "sed -i 's/^#submission/submission/' /etc/postfix/master.cf || true",
+  command => "sed -i 's/^#submission/submission/' /etc/postfix/master.cf",
   unless  => 'grep -q "^submission " /etc/postfix/master.cf',
+  path    => ['/bin', '/usr/bin'],
+  require => Package['postfix'],
+  notify  => Service['postfix'],
+}
+
+# Submission port — uncomment required -o lines
+exec { 'master-cf-submission-opts':
+  command => "sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_tls_security_level=encrypt/  -o smtpd_tls_security_level=encrypt/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_sasl_auth_enable=yes/  -o smtpd_sasl_auth_enable=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o smtpd_tls_auth_only=yes/  -o smtpd_tls_auth_only=yes/' /etc/postfix/master.cf && sed -i '/^submission/,/^$/ s/^#\\s*-o local_header_rewrite_clients=static:all/  -o local_header_rewrite_clients=static:all/' /etc/postfix/master.cf",
+  unless  => 'grep -A10 "^submission " /etc/postfix/master.cf | grep -q "smtpd_tls_security_level=encrypt"',
+  path    => ['/bin', '/usr/bin'],
+  require => Exec['master-cf-submission'],
+  notify  => Service['postfix'],
+}
+
+# SMTPS port 465 (submissions)
+exec { 'master-cf-submissions':
+  command => "sed -i 's/^#submissions/submissions/' /etc/postfix/master.cf",
+  unless  => 'grep -q "^submissions " /etc/postfix/master.cf',
   path    => ['/bin', '/usr/bin'],
   require => Package['postfix'],
   notify  => Service['postfix'],
@@ -317,6 +384,15 @@ service { 'postfix':
   ensure     => running,
   enable     => true,
   hasrestart => true,
+}
+
+# =====================================================
+# POSTGREY — greylisting for spam rejection
+# =====================================================
+service { 'postgrey':
+  ensure  => running,
+  enable  => true,
+  require => Package['postgrey'],
 }
 
 # =====================================================
@@ -332,7 +408,7 @@ file { '/etc/dovecot/dovecot-sql.conf.ext':
 
 file { '/etc/dovecot/dovecot.conf':
   ensure  => file,
-  content => "protocols = imap pop3 lmtp sieve\nmail_location = maildir:/var/mail/vmail/%d/%n/Maildir\nssl = yes\nssl_cert = </etc/ssl/certs/mail.pem\nssl_key = </etc/ssl/private/mail.key\ndisable_plaintext_auth = no\nauth_mechanisms = plain login\nfirst_valid_uid = 5000\nlast_valid_uid = 5000\nfirst_valid_gid = 5000\nlast_valid_gid = 5000\n!include conf.d/*.conf\n",
+  content => "protocols = imap pop3 lmtp sieve\nmail_location = maildir:/var/mail/vmail/%d/%n/Maildir\nssl = yes\nssl_cert = </etc/ssl/certs/mail.pem\nssl_key = </etc/ssl/private/mail.key\nssl_min_protocol = TLSv1.2\nssl_prefer_server_ciphers = yes\nssl_cipher_list = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384\nssl_dh = </usr/share/dovecot/dh.pem\ndisable_plaintext_auth = no\nauth_mechanisms = plain login\nfirst_valid_uid = 5000\nlast_valid_uid = 5000\nfirst_valid_gid = 5000\nlast_valid_gid = 5000\nlogin_trusted_networks = 127.0.0.1\n!include conf.d/*.conf\n",
   notify  => Service['dovecot'],
 }
 
@@ -534,7 +610,7 @@ service { 'spamd':
 # =====================================================
 file { '/etc/fail2ban/jail.local':
   ensure  => file,
-  content => "[DEFAULT]\nbantime   = 1h\nfindtime  = 10m\nmaxretry  = 5\nbackend   = systemd\nallowipv6 = auto\n\n[sshd]\nenabled  = true\nport     = ssh\nfilter   = sshd\nlogpath  = /var/log/auth.log\n\n[postfix]\nenabled  = true\nport     = smtp,submission\nfilter   = postfix\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[dovecot]\nenabled  = true\nport     = pop3,pop3s,imap,imaps,submission\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[sieve]\nenabled  = true\nport     = 4190\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n",
+  content => "[DEFAULT]\nbantime   = 1h\nfindtime  = 10m\nmaxretry  = 5\nbackend   = systemd\nallowipv6 = auto\n\n[sshd]\nenabled  = true\nport     = ssh\nfilter   = sshd\nlogpath  = /var/log/auth.log\n\n[postfix]\nenabled  = true\nport     = smtp,submission\nfilter   = postfix\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[postfix-sasl]\nenabled  = true\nport     = smtp,submission\nfilter   = postfix-sasl\nlogpath  = /var/log/mail.log\nmaxretry = 3\nbantime  = 24h\n\n[dovecot]\nenabled  = true\nport     = pop3,pop3s,imap,imaps,submission\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n\n[sieve]\nenabled  = true\nport     = 4190\nfilter   = dovecot\nlogpath  = /var/log/mail.log\nmaxretry = 3\n",
   notify  => Service['fail2ban'],
 }
 
@@ -545,7 +621,7 @@ service { 'fail2ban':
 }
 
 # =====================================================
-# NGINX + PHP-FPM
+# NGINX + PHP-FPM + HTTPS
 # =====================================================
 service { 'php8.3-fpm':
   ensure => running,
@@ -554,7 +630,7 @@ service { 'php8.3-fpm':
 
 file { '/etc/nginx/sites-available/mail.conf':
   ensure  => file,
-  content => "server {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    try_files \$uri \$uri/ /index.php?\$args;\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
+  content => "server {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    try_files \$uri \$uri/ /index.php?\$args;\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
   notify  => Service['nginx'],
 }
 
@@ -587,7 +663,7 @@ service { 'nginx':
 # =====================================================
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'localhost:143';\n\$config['smtp_host'] = 'localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','vacation'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','vacation'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n?>",
   require => Package['roundcube'],
 }
 
@@ -623,8 +699,7 @@ file { '/etc/postfixadmin/config.local.php':
   require => Package['postfixadmin'],
 }
 
-# Copy PostfixAdmin schema file
-# Place postfixadmin_schema.sql alongside this .pp file before running
+# PostfixAdmin schema
 exec { 'postfixadmin-schema':
   command => "mysql mailserver < /root/PuppetCode/postfixadmin_schema.sql",
   unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
@@ -647,6 +722,66 @@ file { '/usr/local/bin/postfixadmin-mailbox-postcreate.sh':
   mode    => '0755',
   owner   => 'root',
   group   => 'root',
+}
+
+# =====================================================
+# LOGROTATE
+# =====================================================
+file { '/etc/logrotate.d/mail':
+  ensure  => file,
+  content => "/var/log/mail.log {\n  weekly\n  rotate 12\n  compress\n  delaycompress\n  missingok\n  notifempty\n  create 0640 root adm\n  postrotate\n    invoke-rc.d rsyslog rotate >/dev/null 2>&1 || true\n  endscript\n}\n\n/var/log/mail-backup.log {\n  monthly\n  rotate 6\n  compress\n  missingok\n  notifempty\n}\n",
+}
+
+# =====================================================
+# MONITORING — health check script
+# =====================================================
+file { '/usr/local/bin/mail-healthcheck.sh':
+  ensure  => file,
+  content => "#!/bin/bash\n# Mail server health check — runs every 10 min via cron\nMAILTO=\"postmaster@${domain}\"\nFAILED=''\n\nfor svc in postfix dovecot nginx opendkim mariadb php8.3-fpm fail2ban; do\n  systemctl is-active --quiet \$svc || FAILED=\"\$FAILED \$svc\"\ndone\n\n# Check SMTP port\nnc -z -w5 localhost 25 >/dev/null 2>&1 || FAILED=\"\$FAILED smtp:25\"\nnc -z -w5 localhost 587 >/dev/null 2>&1 || FAILED=\"\$FAILED submission:587\"\nnc -z -w5 localhost 993 >/dev/null 2>&1 || FAILED=\"\$FAILED imaps:993\"\n\n# Check MySQL connectivity\nmysql -umailuser -p${db_pass} -e 'SELECT 1' mailserver >/dev/null 2>&1 || FAILED=\"\$FAILED mysql\"\n\n# Check queue size\nQSIZE=\$(mailq 2>/dev/null | tail -1 | awk '{print \$5}')\nif [ -n \"\$QSIZE\" ] && [ \"\$QSIZE\" -gt 500 ] 2>/dev/null; then\n  FAILED=\"\$FAILED queue_high:\$QSIZE\"\nfi\n\nif [ -n \"\$FAILED\" ]; then\n  echo \"[\$(date)] ALERT: services down:\$FAILED on \$(hostname)\" >> /var/log/mail-healthcheck.log\n  logger -p mail.error \"mail-healthcheck: services down:\$FAILED\"\nfi\n",
+  mode    => '0755',
+  owner   => 'root',
+  group   => 'root',
+}
+
+cron { 'mail-healthcheck':
+  command => '/usr/local/bin/mail-healthcheck.sh',
+  user    => 'root',
+  minute  => '*/10',
+  require => File['/usr/local/bin/mail-healthcheck.sh'],
+}
+
+# =====================================================
+# DNS RECORDS TEMPLATE (copy-paste to DNS provider)
+# =====================================================
+file { '/root/dns-records.txt':
+  ensure  => file,
+  content => "# DNS records for ${domain} — add these to your DNS provider
+# ============================================================
+
+# MX record — mail exchange
+MX     10 mail.${domain}.
+
+# A record — mail server IP
+A      mail.${domain}.  YOUR_SERVER_IP
+
+# SPF — authorize this server to send mail
+TXT    ${domain}.  \"v=spf1 mx a ip4:YOUR_SERVER_IP ~all\"
+
+# DKIM — public key from OpenDKIM
+TXT    mail._domainkey.${domain}.  \"v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApp88Gjgv+fO5UPnrZVrxCfiYrve0pg5yDb75vesO/ZPjveBzjYnrvNj8WcI2Ejjx1xKnD3xmotcdhRsJMczopA4BTu9tzPvNngCWiXXLSVd5zMj71jCnb3llkNEgbqAGHpdb38pzmQght8dgJTXsjm48s3FQyfTmwzqolv6hxmiO5ffbES+fOGdGFKMIor8fEmbOwUZOmdFUnjYwGz8MbYxl+MicojJ7ujEF53kxtSiPVED6FBuYOcH1+6GHSN+Yn3CZ1C75NoSsz+41j1DpYAFO5gLCmZqkWJ+hW/d3eR2haahdtEeAr6h6GX1R2I7HpXEvHGPMOADuFC3hfOh+JQIDAQAB\"
+
+# DMARC — policy for failed SPF/DKIM
+TXT    _dmarc.${domain}.  \"v=DMARC1; p=quarantine; rua=mailto:postmaster@${domain}; ruf=mailto:postmaster@${domain}; fo=1\"
+
+# Reverse DNS (PTR) — set at your hosting provider
+PTR    YOUR_SERVER_IP  ->  mail.${domain}.
+
+# Autodiscover SRV for Outlook
+SRV    _autodiscover._tcp.${domain}.  0 443 autodiscover.${domain}.
+
+# Autoconfig CNAME (optional)
+CNAME  autoconfig.${domain}.  mail.${domain}.
+",
 }
 
 # =====================================================
@@ -693,7 +828,7 @@ exec { 'ufw-allow-ssh':
 }
 
 exec { 'ufw-allow-mail':
-  command => 'ufw allow 25/tcp && ufw allow 587/tcp && ufw allow 143/tcp && ufw allow 993/tcp && ufw allow 110/tcp && ufw allow 995/tcp && ufw allow 4190/tcp',
+  command => 'ufw allow 25/tcp && ufw allow 587/tcp && ufw allow 465/tcp && ufw allow 143/tcp && ufw allow 993/tcp && ufw allow 110/tcp && ufw allow 995/tcp && ufw allow 4190/tcp',
   unless  => 'ufw status | grep -q "25/tcp"',
   path    => ['/usr/sbin', '/bin'],
 }
