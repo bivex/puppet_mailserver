@@ -274,6 +274,13 @@ file { '/etc/dovecot/conf.d/10-mail.conf':
   notify  => Service['dovecot'],
 }
 
+file { '/etc/dovecot/conf.d/15-lda.conf':
+  ensure  => file,
+  content => "lda_mailbox_autocreate = yes\nlda_mailbox_autosubscribe = yes\n\nprotocol lda {\n  mail_plugins = \$mail_plugins sieve\n}\n",
+  require => Package['dovecot-sieve'],
+  notify  => Service['dovecot'],
+}
+
 file { '/etc/dovecot/conf.d/15-mailboxes.conf':
   ensure  => file,
   content => "namespace inbox {\n  mailbox Junk {\n    auto = create\n    special_use = \\Junk\n  }\n  mailbox Trash {\n    auto = create\n    special_use = \\Trash\n  }\n  mailbox Sent {\n    auto = create\n    special_use = \\Sent\n  }\n  mailbox Drafts {\n    auto = create\n    special_use = \\Drafts\n  }\n}\n",
@@ -365,7 +372,7 @@ body VIAGRA_GENERIC /viagra|cialis|pharmacy|meds/i
 describe VIAGRA_GENERIC Common spam keywords
 score VIAGRA_GENERIC 4.0
 
-uri URI_SUSPICIOUS /\\.(xyz|top|click|loan|work|biz|info|pw|tk|ml|ga|cf)\\//i
+uri URI_SUSPICIOUS /\\.(xyz|top|click|loan|work|pw|tk|ml|ga|cf)\\//i
 describe URI_SUSPICIOUS Suspicious TLD in URL
 score URI_SUSPICIOUS 2.5
 "
