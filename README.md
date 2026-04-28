@@ -38,7 +38,7 @@ A production-ready, highly secure, and modern mail server stack managed entirely
 - A valid FQDN (e.g., `mail.example.com`)
 
 ### 2. Configuration
-Edit the top variables in `mailserver_full.pp`:
+Edit the top variables in `manifests/mailserver_full.pp`:
 ```puppet
 $domain     = 'yourdomain.com'
 $db_pass    = 'choose_a_strong_password'
@@ -47,7 +47,7 @@ $admin_pass = 'choose_admin_password'
 
 ### 3. Deployment
 ```bash
-sudo puppet apply mailserver_full.pp
+sudo puppet apply manifests/mailserver_full.pp
 ```
 
 ## 🔑 Access & Credentials
@@ -77,7 +77,7 @@ Before moving this stack to production, ensure you complete the following steps:
 
 ## 🧪 Testing
 
-The project includes a comprehensive Python-based stress test suite (`stress_test.py`) that verifies:
+The project includes a comprehensive Python-based stress test suite (`tests/stress_test.py`) that verifies:
 - Port connectivity and TLS versions.
 - Concurrent IMAP/SMTP sessions.
 - Spam detection (GTUBE) and Sieve movement.
