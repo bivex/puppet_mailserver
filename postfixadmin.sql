@@ -1,1 +1,3 @@
-404: Not Found
+-- This file is intentionally minimal.
+-- The actual schema is in postfixadmin_schema.sql
+-- Run: sudo puppet apply mailserver_full.pp

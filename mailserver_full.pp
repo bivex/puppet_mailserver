@@ -70,44 +70,24 @@ exec { 'create-mail-db':
 CREATE USER IF NOT EXISTS 'mailuser'@'localhost' IDENTIFIED BY '${db_pass}';
 GRANT ALL ON mailserver.* TO 'mailuser'@'localhost';
 FLUSH PRIVILEGES;
-CREATE TABLE IF NOT EXISTS mailserver.virtual_domains (
-  id int(11) NOT NULL AUTO_INCREMENT, name varchar(50) NOT NULL,
-  PRIMARY KEY (id)) ENGINE=InnoDB;
-CREATE TABLE IF NOT EXISTS mailserver.virtual_users (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  domain_id int(11) NOT NULL,
-  email varchar(100) NOT NULL,
-  password varchar(150) NOT NULL,
-  quota int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (id), UNIQUE KEY email (email),
-  FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE) ENGINE=InnoDB;
-CREATE TABLE IF NOT EXISTS mailserver.virtual_aliases (
-  id int(11) NOT NULL AUTO_INCREMENT,
-  domain_id int(11) NOT NULL,
-  source varchar(100) NOT NULL,
-  destination varchar(100) NOT NULL,
-  PRIMARY KEY (id),
-  FOREIGN KEY (domain_id) REFERENCES virtual_domains(id) ON DELETE CASCADE) ENGINE=InnoDB;
 \"",
   unless  => "mysql -umailuser -p${db_pass} -e 'USE mailserver' 2>/dev/null",
   path    => ['/usr/bin'],
   require => Exec['wait-mariadb'],
 }
 
-# Insert default domain and admin user
+# Seed PostfixAdmin tables: domain, admin, mailbox, aliases
+# The password scheme must match $CONF['encrypt'] in PostfixAdmin config (md5crypt by default)
 exec { 'seed-mail-db':
   command => "mysql mailserver -e \"
-INSERT IGNORE INTO virtual_domains (id, name) VALUES (1, '${domain}');
-INSERT IGNORE INTO virtual_users (domain_id, email, password, quota)
-  VALUES (1, 'admin@${domain}', CONCAT('{SHA512-CRYPT}', ENCRYPT('${admin_pass}', CONCAT('\\\$6\\\$', SUBSTRING(SHA(RAND()), -16)))), 1073741824);
-INSERT IGNORE INTO virtual_users (domain_id, email, password, quota)
-  VALUES (1, 'postmaster@${domain}', CONCAT('{SHA512-CRYPT}', ENCRYPT('${admin_pass}', CONCAT('\\\$6\\\$', SUBSTRING(SHA(RAND()), -16)))), 1073741824);
-INSERT IGNORE INTO virtual_aliases (domain_id, source, destination)
-  VALUES (1, 'info@${domain}', 'admin@${domain}');
-INSERT IGNORE INTO virtual_aliases (domain_id, source, destination)
-  VALUES (1, 'support@${domain}', 'admin@${domain}');
+INSERT IGNORE INTO domain (domain, description, aliases, mailboxes, quota, transport, backupmx, created, modified, active)
+  VALUES ('${domain}', 'Default domain', 0, 0, 0, 'virtual', 0, NOW(), NOW(), 1);
+INSERT IGNORE INTO admin (username, password, superadmin, created, modified, active)
+  VALUES ('admin@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$1\\\$', SUBSTRING(MD5(RAND()), -8))), 1, NOW(), NOW(), 1);
+INSERT IGNORE INTO domain_admins (username, domain, created, active)
+  VALUES ('admin@${domain}', 'ALL', NOW(), 1);
 \"",
-  unless  => "mysql -umailuser -p${db_pass} -e \"SELECT id FROM mailserver.virtual_domains WHERE name='${domain}'\" 2>/dev/null | grep -q 1",
+  unless  => "mysql -umailuser -p${db_pass} -e \"SELECT 1 FROM mailserver.domain WHERE domain='${domain}'\" 2>/dev/null | grep -q 1",
   path    => ['/usr/bin'],
   require => Exec['create-mail-db'],
 }
@@ -115,35 +95,28 @@ INSERT IGNORE INTO virtual_aliases (domain_id, source, destination)
 # MySQL config files for Postfix/Dovecot
 file { '/etc/postfix/mysql-virtual-domains.cf':
   ensure  => file,
-  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT 1 FROM virtual_domains WHERE name='%s'\n",
+  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT 1 FROM domain WHERE domain='%s' AND active=1\n",
   mode    => '0640',
   group   => 'postfix',
 }
 
-file { '/etc/postfix/mysql-virtual-users.cf':
+file { '/etc/postfix/mysql-virtual-mailbox.cf':
   ensure  => file,
-  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT 1 FROM virtual_users WHERE email='%s'\n",
+  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT maildir FROM mailbox WHERE username='%s' AND active=1\n",
   mode    => '0640',
   group   => 'postfix',
 }
 
 file { '/etc/postfix/mysql-virtual-aliases.cf':
   ensure  => file,
-  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT destination FROM virtual_aliases WHERE source='%s'\n",
+  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT goto FROM alias WHERE address='%s' AND active=1\n",
   mode    => '0640',
   group   => 'postfix',
 }
 
 file { '/etc/postfix/mysql-virtual-email2email.cf':
   ensure  => file,
-  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT email FROM virtual_users WHERE email='%s'\n",
-  mode    => '0640',
-  group   => 'postfix',
-}
-
-file { '/etc/postfix/mysql-virtual-quota.cf':
-  ensure  => file,
-  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT quota FROM virtual_users WHERE email='%s'\n",
+  content => "user = mailuser\npassword = ${db_pass}\nhosts = 127.0.0.1\ndbname = mailserver\nquery = SELECT username FROM mailbox WHERE username='%s' AND active=1\n",
   mode    => '0640',
   group   => 'postfix',
 }
@@ -252,7 +225,7 @@ virtual_gid_maps = static:5000
 virtual_transport = lmtp:unix:private/dovecot-lmtp
 
 virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-domains.cf
-virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-users.cf
+virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox.cf
 virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-aliases.cf, mysql:/etc/postfix/mysql-virtual-email2email.cf
 
 # TLS
@@ -326,7 +299,7 @@ service { 'postfix':
 # =====================================================
 file { '/etc/dovecot/dovecot-sql.conf.ext':
   ensure  => file,
-  content => "driver = mysql\nconnect = host=127.0.0.1 dbname=mailserver user=mailuser password=${db_pass}\ndefault_pass_scheme = SHA512-CRYPT\npassword_query = SELECT email AS user, password FROM virtual_users WHERE email='%u'\nuser_query = SELECT CONCAT('/var/mail/vmail/', LCASE(SUBSTRING_INDEX(email,'@',-1)), '/', LCASE(SUBSTRING_INDEX(email,'@',1))) AS home, 5000 AS uid, 5000 AS gid, CONCAT('*:bytes=', quota) AS quota_rule FROM virtual_users WHERE email='%u'\niterate_query = SELECT email AS user FROM virtual_users\n",
+  content => "driver = mysql\nconnect = host=127.0.0.1 dbname=mailserver user=mailuser password=${db_pass}\ndefault_pass_scheme = MD5-CRYPT\npassword_query = SELECT username AS user, password FROM mailbox WHERE username='%u' AND active=1\nuser_query = SELECT CONCAT('/var/mail/vmail/', domain, '/', local_part) AS home, 5000 AS uid, 5000 AS gid, CONCAT('*:bytes=', quota) AS quota_rule FROM mailbox WHERE username='%u' AND active=1\niterate_query = SELECT username AS user FROM mailbox WHERE active=1\n",
   mode    => '0640',
   owner   => 'root',
   group   => 'dovecot',
@@ -556,7 +529,7 @@ service { 'php8.3-fpm':
 
 file { '/etc/nginx/sites-available/mail.conf':
   ensure  => file,
-  content => "server {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public;\n    index index.php;\n    location ~ ^/admin/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n    }\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
+  content => "server {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    try_files \$uri \$uri/ /index.php?\$args;\n  }\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    include fastcgi_params;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
   notify  => Service['nginx'],
 }
 
@@ -621,22 +594,26 @@ file { '/var/lib/roundcube/temp':
 # =====================================================
 file { '/etc/postfixadmin/config.local.php':
   ensure  => file,
-  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'YES';\n\$CONF['vacation_domain'] = 'autoreply.${domain}';\n\$CONF['password_expiration'] = 'NO';\n?>",
+  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'md5crypt';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'YES';\n\$CONF['vacation_domain'] = 'autoreply.${domain}';\n\$CONF['password_expiration'] = 'NO';\n?>",
   require => Package['postfixadmin'],
 }
 
-# PostfixAdmin setup password hash
-exec { 'postfixadmin-setup':
-  command => "mysql mailserver -e \"CREATE TABLE IF NOT EXISTS admin (username varchar(255) NOT NULL, password varchar(255) NOT NULL, superadmin tinyint(1) NOT NULL DEFAULT 0, created datetime NOT NULL, modified datetime NOT NULL, active tinyint(1) NOT NULL DEFAULT 1, PRIMARY KEY (username)) ENGINE=InnoDB;\"",
-  path    => ['/usr/bin'],
-  require => Exec['create-mail-db'],
-}
-
+# Copy PostfixAdmin schema file
+# Place postfixadmin_schema.sql alongside this .pp file before running
 exec { 'postfixadmin-schema':
-  command => "mysql mailserver < /tmp/postfixadmin_schema.sql",
+  command => "mysql mailserver < postfixadmin_schema.sql",
   unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
   path    => ['/usr/bin'],
-  require => Exec['postfixadmin-setup'],
+  cwd     => '/root',
+  require => [Exec['create-mail-db'], File['/etc/postfixadmin/config.local.php']],
+}
+
+# PostfixAdmin config version (required for upgrade.php)
+exec { 'postfixadmin-seed':
+  command => "mysql mailserver -e \"INSERT IGNORE INTO config (name, value) VALUES ('version', '1847');\"",
+  unless  => "mysql -umailuser -p${db_pass} -e \"SELECT value FROM mailserver.config WHERE name='version'\" 2>/dev/null | grep -q 1847",
+  path    => ['/usr/bin'],
+  require => Exec['postfixadmin-schema'],
 }
 
 # Mailbox creation hook
