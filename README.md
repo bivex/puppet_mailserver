@@ -1,92 +1,133 @@
 # Puppet Mail Server — Full Corporate Edition
 
 Rapid deployment of a full corporate mail server on Ubuntu 24.04 via Puppet.
-Two manifests: simple (system users) and full corporate (MySQL virtual users).
 
 Tested on Ubuntu 24.04.4 LTS ARM64 (Parallels VM on macOS).
 
-## Editions
+## Quick Start
 
-| Edition | File | Users | Extra |
-|---------|------|-------|-------|
-| **Simple** | `mailserver.pp` | System (Linux PAM) | Postfix + Dovecot + OpenDKIM + SpamAssassin + Fail2ban + Sieve |
-| **Corporate** | `mailserver_full.pp` | MySQL virtual users | + Roundcube + PostfixAdmin + Quotas + Vacation + Autodiscover + Backup |
+```bash
+# Inside VM
+sudo puppet apply mailserver_full.pp
+```
 
-## Corporate Edition — Disk Footprint
-
-| Item | Size |
-|------|------|
-| PuppetCode/ (manifest + tests + docs) | 35 KB |
-| Postfix + MySQL maps | 4 MB |
-| Dovecot (IMAP/POP3/LMTP/Sieve/MySQL) | 16 MB |
-| OpenDKIM | 264 KB |
-| SpamAssassin + rules | 3.4 MB |
-| Fail2ban | 3.7 MB |
-| MariaDB | 120 MB |
-| Nginx + PHP 8.3 FPM | 18 MB |
-| Roundcube | 22 MB |
-| PostfixAdmin | 6 MB |
-| Certbot | 12 MB |
-| **Total** | **~206 MB** |
+Deploy time: ~140 seconds.
 
 ## Components
 
 | Component | Role |
 |-----------|------|
-| Postfix | SMTP — virtual users via MySQL, DKIM milter, SpamAssassin pipe, rate limiting |
+| Postfix | SMTP — virtual users via MySQL, DKIM milter, SpamAssassin pipe, rate limiting, postscreen DNSBL |
 | Dovecot | IMAP/POP3/LMTP — MySQL auth, Sieve, quotas, auto-create folders |
 | MariaDB | Virtual users, aliases, domains, Roundcube DB |
-| OpenDKIM | DKIM email signing (port 8891, internal) |
-| SpamAssassin | Spam filtering with Bayes, Razor, Pyzor, DNSBL, URIBL |
-| Fail2ban | Brute-force protection for SSH, SMTP, IMAP/POP3, Sieve |
-| Roundcube | Webmail at `/mail` — Sieve filters, vacation, spam buttons |
+| OpenDKIM | DKIM email signing (port 8891, RSA 2048, relaxed/simple) |
+| SpamAssassin | Spam filtering with Bayes, Razor, Pyzor, DNSBL, URIBL, custom rules |
+| Postgrey | Greylisting на порту 10023 |
+| Fail2ban | 5 jail'ов: sshd, postfix, postfix-sasl (24h ban), dovecot, sieve |
+| Roundcube | Webmail at `/mail` — Sieve filters, spam buttons |
 | PostfixAdmin | Admin panel at `/admin` — domains, users, aliases, quotas |
-| Nginx + PHP 8.3 | Web server for Roundcube, PostfixAdmin, autodiscover |
-| Sieve | Mail filtering, spam-to-Junk, vacation auto-responder (port 4190) |
-| Certbot | Let's Encrypt SSL (manual step after DNS setup) |
-| ufw | Firewall — opens all required ports |
+| Nginx + PHP 8.3 | HTTPS (TLS 1.2+), Roundcube, PostfixAdmin, autodiscover/autoconfig |
+| Certbot | Let's Encrypt SSL (ручной шаг после DNS) |
+| UFW | Firewall — все почтовые и веб-порты открыты |
 
-## Quick Start
+## Ports
 
-### Option 1: Simple Edition (system users)
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 22 | TCP | SSH |
+| 25 | TCP | SMTP — приём входящей почты |
+| 587 | TCP | Submission — отправка клиентами (STARTTLS + SASL обязателен) |
+| 465 | TCP | SMTPS — отправка (TLS wrapper mode) |
+| 80 | TCP | HTTP → редирект на HTTPS, ACME challenge |
+| 443 | TCP | HTTPS — все веб-интерфейсы |
+| 143 | TCP | IMAP |
+| 993 | TCP | IMAPS (SSL) |
+| 110 | TCP | POP3 |
+| 995 | TCP | POP3S (SSL) |
+| 4190 | TCP | ManageSieve |
+| 8891 | TCP | OpenDKIM (localhost only) |
+| 10023 | TCP | Postgrey (localhost only) |
 
-```bash
-ssh user@<VM_IP> "sudo apt update && sudo apt install -y puppet"
-scp mailserver.pp user@<VM_IP>:/tmp/
-ssh user@<VM_IP> "sudo puppet apply /tmp/mailserver.pp"
+## Web Interfaces
+
+| URL | Description |
+|-----|-------------|
+| `https://mail.example.com/admin/` | PostfixAdmin — управление доменами, ящиками, алиасами |
+| `https://mail.example.com/mail/` | Roundcube — веб-клиент |
+| `https://mail.example.com/.well-known/autoconfig/mail/config-v1.1.xml` | Autoconfig (Thunderbird) |
+| `https://mail.example.com/autodiscover/autodiscover.xml` | Autodiscover (Outlook) |
+
+## Corporate Features
+
+- **Header privacy** — strip User-Agent, X-Mailer, X-Originating-IP, X-PHP-Originating-Script
+- **Rate limiting** — 100 msgs/min, 200 rcpts/min, 30 connections/min
+- **Postscreen** — DNSBL-проверки (SpamHaus, SORBS, SpamEatingMonkey), отсекает ботов до очереди
+- **Quota enforcement** — Dovecot quota-status policy service, 1 GB default, rejects при переполнении
+- **Vacation/autoreply** — transport map на autoreply.example.com
+- **Sieve** — авто-перемещение спама в Junk, пользовательские фильтры через Roundcube
+- **Postgrey** — greylisting, первые письма от новых отправителей отклоняются на 5 мин
+- **Fail2ban** — postfix-sasl jail с 24h баном за брутфорс
+- **HTTPS** — TLS 1.2+, современные шифры, self-signed (Let's Encrypt ready)
+- **Submission 587** — обязательный TLS + SASL auth для отправки почты клиентами
+- **SMTPS 465** — TLS wrapper mode для клиентов без STARTTLS
+- **SpamAssassin** — Razor, Pyzor, Bayes, кастомные правила (viagra, suspicious TLD)
+- **Backup** — ежедневный mysqldump + rsync Maildir, 30 дней хранения
+- **Monitoring** — healthcheck cron каждые 10 мин, лог в /var/log/mail-healthcheck.log
+- **Logrotate** — /var/log/mail.log, weekly, 12 недель ротация
+- **DNS template** — /root/dns-records.txt со всеми нужными записями
+
+## Default Accounts
+
+| Account | Password | Purpose |
+|---------|----------|---------|
+| admin@example.com | adminpass123 | Admin mailbox (1 GB quota) |
+| postmaster@example.com | adminpass123 | Postmaster mailbox (1 GB quota) |
+| info@example.com | → admin@example.com | Alias |
+| support@example.com | → admin@example.com | Alias |
+| abuse@example.com | → admin@example.com | Alias |
+| hostmaster@example.com | → admin@example.com | Alias |
+| webmaster@example.com | → admin@example.com | Alias |
+| MariaDB mailuser | maildbpass123 | Database access |
+
+**Change all passwords before production use.**
+
+## Configuration
+
+Before running, edit in the manifest:
+
+```puppet
+$domain     = 'example.com'    # -> your domain
+$hostname   = "mail.${domain}" # -> your mail hostname
+$db_pass    = 'maildbpass123'  # -> strong DB password
+$admin_pass = 'adminpass123'   # -> strong admin password
 ```
-
-### Option 2: Corporate Edition (MySQL virtual users)
-
-```bash
-ssh user@<VM_IP> "sudo apt update && sudo apt install -y puppet"
-scp mailserver_full.pp user@<VM_IP>:/tmp/
-ssh user@<VM_IP> "sudo puppet apply /tmp/mailserver_full.pp"
-```
-
-Deploy time: ~140 seconds (corporate), ~60 seconds (simple).
 
 ## Post-Install: DNS Records
 
+DNS records template is at `/root/dns-records.txt` on the VM. Add these to your DNS provider:
+
 ```
-# MX record
+# MX
 MX  10  mail.example.com.
 
-# SPF
-TXT  @  "v=spf1 mx a ip4:<YOUR_SERVER_IP> -all"
+# A record
+A   mail.example.com.  <YOUR_SERVER_IP>
 
-# DKIM — get the public key:
-#    sudo cat /etc/opendkim/keys/mail.txt
-TXT  mail._domainkey  "v=DKIM1; h=sha256; k=rsa; p=<KEY_FROM_SERVER>"
+# SPF
+TXT  example.com.  "v=spf1 mx a ip4:<YOUR_SERVER_IP> ~all"
+
+# DKIM — get the real key:
+#   sudo cat /etc/opendkim/keys/mail.txt
+TXT  mail._domainkey.example.com.  "v=DKIM1; h=sha256; k=rsa; p=<KEY>"
 
 # DMARC
-TXT  _dmarc  "v=DMARC1; p=quarantine; rua=mailto:postmaster@example.com"
+TXT  _dmarc.example.com.  "v=DMARC1; p=quarantine; rua=mailto:postmaster@example.com"
 
-# Autoconfig (Thunderbird) — served automatically at:
-#    http://mail.example.com/.well-known/autoconfig/mail/config-v1.1.xml
+# PTR (reverse DNS) — set at hosting provider
+PTR  <YOUR_SERVER_IP>  ->  mail.example.com.
 
-# Autodiscover (Outlook) — served automatically at:
-#    http://mail.example.com/autodiscover/autodiscover.xml
+# Autodiscover SRV (Outlook)
+SRV  _autodiscover._tcp.example.com.  0 443 autodiscover.example.com.
 ```
 
 ## Post-Install: Let's Encrypt SSL
@@ -100,34 +141,16 @@ sudo systemctl enable certbot.timer
 sudo systemctl start certbot.timer
 ```
 
-## Post-Install: PostfixAdmin
-
-1. Open `http://<SERVER_IP>/admin/`
-2. Create setup password → get hash
-3. Add hash to `/etc/postfixadmin/config.local.php`
-4. Create admin account
-5. Add domains, mailboxes, aliases via web UI
-
-## Default Accounts (Corporate Edition)
-
-| Account | Password | Purpose |
-|---------|----------|---------|
-| admin@example.com | adminpass123 | Default mailbox (1 GB quota) |
-| postmaster@example.com | adminpass123 | Postmaster mailbox (1 GB quota) |
-| info@example.com | → admin@example.com | Alias |
-| support@example.com | → admin@example.com | Alias |
-| MariaDB mailuser | maildbpass123 | Database access |
-
-**Change all passwords before production use.**
-
 ## Verification
 
 ```bash
 # All services
-systemctl status postfix dovecot opendkim spamd fail2ban mariadb nginx php8.3-fpm
+for svc in postfix dovecot nginx opendkim mariadb php8.3-fpm fail2ban postgrey spamd; do
+  printf "%-15s %s\n" $svc $(systemctl is-active $svc)
+done
 
 # Open ports
-ss -tlnp | grep -E "25|587|143|993|110|995|4190|80|443|3306|8891"
+ss -tlnp | grep -E ":(25|587|465|143|993|110|995|443|80|4190|8891|10023) "
 
 # Virtual user auth test
 sudo doveadm auth test admin@example.com
@@ -136,11 +159,11 @@ sudo doveadm auth test admin@example.com
 sudo cat /etc/opendkim/keys/mail.txt
 
 # Web interfaces
-curl -s -o /dev/null -w '%{http_code}' http://<SERVER_IP>/mail/
-curl -s -o /dev/null -w '%{http_code}' http://<SERVER_IP>/admin/
+curl -sk -o /dev/null -w '%{http_code}' https://localhost/admin/
+curl -sk -o /dev/null -w '%{http_code}' https://localhost/mail/
 
 # Send test email
-echo "Hello" | sendmail admin@example.com
+echo "Test" | sendmail -f admin@example.com postmaster@example.com
 
 # Check delivery
 sudo ls /var/mail/vmail/example.com/admin/Maildir/new/
@@ -151,96 +174,13 @@ sudo mysql -umailuser -pmaildbpass123 mailserver -e 'SHOW TABLES;'
 # Firewall
 sudo ufw status
 
-# Fail2ban
+# Fail2ban jails
 sudo fail2ban-client status
 ```
 
-## Configuration
-
-Before running, edit in the manifest:
-
-```puppet
-$domain     = 'example.com'    # -> your domain
-$db_pass    = 'maildbpass123'  # -> strong DB password
-$admin_pass = 'adminpass123'   # -> strong admin password
-```
-
-## Ports
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 22 | TCP | SSH |
-| 25 | TCP | SMTP |
-| 587 | TCP | Submission (STARTTLS) |
-| 80 | TCP | HTTP (Roundcube, PostfixAdmin, ACME) |
-| 443 | TCP | HTTPS (after Let's Encrypt) |
-| 143 | TCP | IMAP |
-| 993 | TCP | IMAPS |
-| 110 | TCP | POP3 |
-| 995 | TCP | POP3S |
-| 4190 | TCP | ManageSieve |
-| 3306 | TCP | MariaDB (localhost only) |
-| 8891 | TCP | OpenDKIM (localhost only) |
-
-## What the Corporate Manifest Does
-
-1. Installs packages (postfix-mysql, dovecot-mysql, mariadb, nginx, php, roundcube, postfixadmin, certbot)
-2. Generates self-signed SSL certificate (replace with Let's Encrypt)
-3. Creates MariaDB database with virtual_domains, virtual_users, virtual_aliases tables
-4. Seeds default domain, admin user, postmaster, and aliases
-5. Creates vmail user (uid/gid 5000) with /var/mail/vmail storage
-6. Generates DKIM key pair (2048-bit RSA)
-7. Configures OpenDKIM — signs outgoing, verifies incoming
-8. Configures Postfix — MySQL virtual users, LMTP delivery, DKIM milter, SpamAssassin content filter
-9. Configures Dovecot — MySQL auth, LMTP, Sieve + vacation, quotas (1 GB default), auto-create folders
-10. Configures SpamAssassin — Bayes, Razor, Pyzor, DNSBL, URIBL, custom rules
-11. Configures Fail2ban — SSH, SMTP, IMAP/POP3, Sieve
-12. Configures Nginx + PHP 8.3 FPM — Roundcube at /mail, PostfixAdmin at /admin
-13. Deploys autodiscover (Outlook) and autoconfig (Thunderbird) XML
-14. Configures Roundcube — MySQL, IMAP/SMTP, Sieve, vacation plugin
-15. Configures PostfixAdmin — MySQL, quotas, vacation, aliases
-16. Sets up daily backup cron (mysqldump + rsync, 30-day retention)
-17. Opens all ports in UFW
-
-## Load Testing
-
-A Python test suite is included (`stress_test.py`). Runs from macOS host against the VM.
-
-```bash
-# For simple edition — update VM_IP in script first
-unset PYTHONHOME && unset PYTHONPATH && /usr/bin/python3 stress_test.py
-```
-
-### Test Suite (Simple Edition)
-
-| # | Test | Description |
-|---|------|-------------|
-| 1 | Connectivity | TCP check all 7 ports |
-| 2 | SMTP Single | Send 1 email, verify delivery |
-| 3 | SMTP Batch | Send 100 emails, measure throughput |
-| 4 | SMTP Concurrent | Send 200 emails via 10 threads |
-| 5 | IMAP Login | Login, select INBOX, count messages |
-| 6 | IMAP Concurrent | 20 simultaneous IMAP sessions |
-| 7 | POP3 Login | Login, stat messages and size |
-| 8 | Spam Detection | Send clean + spam, verify spam → Junk |
-| 9 | Fail2ban | 8 wrong password attempts, verify ban |
-| 10 | Sustained Load | 15 seconds at 5 msg/sec |
-
-### Benchmarks (Simple Edition — Ubuntu 24.04 ARM64, 2 CPU, 2GB RAM)
-
-| Metric | Result |
-|--------|--------|
-| SMTP batch (100 msg) | **15.1 msg/sec** |
-| SMTP concurrent (200 msg, 10 threads) | **140.7 msg/sec** |
-| IMAP concurrent (20 sessions) | **20/20 in 0.1s** |
-| Spam detection (external spam) | **Score 16.7, auto-move to Junk** |
-| Clean mail (legitimate) | **Score 1.4, delivered to Inbox** |
-| Fail2ban trigger | **Ban after 2 bad attempts** |
-| Total test time | **~43 seconds** |
-
 ## Backup
 
-Daily backup runs at 02:17 via cron:
+Daily backup at 02:17 via cron:
 - MySQL dump (compressed) → `/var/backups/mail/mailserver-YYYYMMDD.sql.gz`
 - Maildir incremental rsync → `/var/backups/mail/vmail-latest/`
 - 30-day retention for SQL dumps
@@ -256,12 +196,27 @@ gunzip < /var/backups/mail/mailserver-20260428.sql.gz | mysql -umailuser -pmaild
 rsync -a /var/backups/mail/vmail-latest/ /var/mail/vmail/
 ```
 
+## Known Minor Issues
+
+- **LMTP TLS warning**: `opportunistic TLS not appropriate for unix-domain` — косметическое, можно убрать `lmtp_tls_security_level = may` из main.cf
+- **Postfix chroot SSL warning**: `/var/spool/postfix/etc/ssl/certs/mail.pem differs` — не влияет на работу
+- **Vacation autoreply**: transport map настроен, vacation-скрипт от PostfixAdmin требует проверки end-to-end
+- **Roundcube vacation plugin**: может не входить в стандартную поставку Ubuntu
+
+## Optional Enhancements (not included)
+
+- **ClamAV** — антивирус (исключён — тяжёлый для ARM64 VM)
+- **SOGo / Nextcloud** — календарь, контакты, групповая работа
+- **Mailman** — списки рассылки (mailing lists)
+- **Prometheus + Grafana** — мониторинг и дашборды
+
 ## File Structure
 
 ```
 PuppetCode/
-├── mailserver.pp        — simple edition (system users, ~25 MB)
-├── mailserver_full.pp   — corporate edition (MySQL virtual users, ~206 MB)
-├── stress_test.py       — load test suite (run from macOS host)
-└── README.md            — documentation
+├── mailserver_full.pp        — corporate edition manifest
+├── postfixadmin_schema.sql   — PostfixAdmin 3.3 DB schema
+├── postfixadmin.sql          — placeholder (points to schema)
+├── stress_test.py            — load test suite
+└── README.md                 — this file
 ```
