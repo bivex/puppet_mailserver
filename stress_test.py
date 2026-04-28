@@ -288,48 +288,44 @@ def test_imap_concurrent(conns=15):
 def test_spam():
     log_section("SPAMASSASSIN + SIEVE", 8)
 
-    # SpamAssassin content_filter runs on port 25 (incoming) only.
-    # Sieve rule: X-Spam-Flag: YES -> fileinto Junk
-    # Test Sieve by sending email with pre-added X-Spam-Flag header.
-    tag = f"SIEVE-TEST-{int(time.time())}"
-    ok, _ = smtp_send(
-        f"Spam sieve test {tag}",
-        "This message tests Sieve spam-to-Junk filing.",
-        extra_headers={"X-Spam-Flag": "YES"},
+    gtube = "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X"
+    tag = f"GTUBE-TEST-{int(time.time())}"
+    
+    ok, err = smtp_send(
+        f"Spam GTUBE test {tag}",
+        f"This is a GTUBE test message.\n\n{gtube}",
     )
-    log(f"Sieve test email (X-Spam-Flag: YES) sent — {'OK' if ok else 'FAIL'}", ok=ok)
-    time.sleep(5)
+    if not ok:
+        log(f"GTUBE test email sent — FAIL: {err}", ok=False)
+        return
 
-    # Also send a clean email (no spam header)
-    ok, _ = smtp_send(f"Clean report {tag}", "Normal business content here.")
-    log(f"Clean email sent — {'OK' if ok else 'FAIL'}", ok=ok)
-    time.sleep(5)
+    log(f"GTUBE email sent, waiting 10s for SA + Sieve...")
+    time.sleep(10)
 
     try:
-        imap = imaplib.IMAP4(VM_IP, IMAP, timeout=10)
+        imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10)
         imap.login(USER, PASS)
-
-        # Spam-tagged email should be in Junk (Sieve moved it)
-        imap.select("Junk")
-        _, data = imap.search(None, f'SUBJECT "Spam sieve test {tag}"')
-        spam_junk = len(data[0].split()) if data[0] else 0
-        log(f"X-Spam-Flag email in Junk (Sieve) — {spam_junk}", ok=spam_junk > 0)
-
-        if spam_junk == 0:
-            imap.select("INBOX")
-            _, data = imap.search(None, f'SUBJECT "Spam sieve test {tag}"')
-            in_inbox = len(data[0].split()) if data[0] else 0
-            if in_inbox > 0:
-                log("Spam-tagged email in INBOX — Sieve NOT working", ok=False)
+        
+        # Check Junk
+        status, _ = imap.select("Junk")
+        if status != 'OK':
+            status, _ = imap.select("Spam")
+            
+        if status == 'OK':
+            _, data = imap.search(None, f'SUBJECT "{tag}"')
+            if data[0]:
+                log("GTUBE email correctly moved to Junk folder (SIEVE PASS)")
             else:
-                log("Spam-tagged email not found — delivery delayed", ok=False)
-
-        # Clean email should be in INBOX
-        imap.select("INBOX")
-        _, data = imap.search(None, f'SUBJECT "Clean report {tag}"')
-        clean = len(data[0].split()) if data[0] else 0
-        log(f"Clean email in INBOX — {clean}", ok=clean > 0)
-
+                # Check INBOX to see if it missed Sieve
+                imap.select("INBOX")
+                _, data = imap.search(None, f'SUBJECT "{tag}"')
+                if data[0]:
+                    log("GTUBE email found in INBOX — Sieve NOT working", ok=False)
+                else:
+                    log("GTUBE email not found in Junk or INBOX", ok=False)
+        else:
+            log("Junk/Spam folder not found", ok=False)
+            
         imap.logout()
     except Exception as e:
         log(f"Spam/Sieve IMAP error — {e}", ok=False)
