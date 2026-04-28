@@ -78,6 +78,7 @@ FLUSH PRIVILEGES;
 
 # Seed PostfixAdmin tables: domain, admin, mailbox, aliases
 # The password scheme must match $CONF['encrypt'] in PostfixAdmin config (md5crypt by default)
+# maildir format: domain/user/ (matches domain_path=YES, domain_in_mailbox=NO)
 exec { 'seed-mail-db':
   command => "mysql mailserver -e \"
 INSERT IGNORE INTO domain (domain, description, aliases, mailboxes, quota, transport, backupmx, created, modified, active)
@@ -86,10 +87,34 @@ INSERT IGNORE INTO admin (username, password, superadmin, created, modified, act
   VALUES ('admin@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$1\\\$', SUBSTRING(MD5(RAND()), -8))), 1, NOW(), NOW(), 1);
 INSERT IGNORE INTO domain_admins (username, domain, created, active)
   VALUES ('admin@${domain}', 'ALL', NOW(), 1);
+INSERT IGNORE INTO mailbox (username, password, name, maildir, quota, local_part, domain, created, modified, active)
+  VALUES ('admin@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$1\\\$', SUBSTRING(MD5(RAND()), -8))), 'Admin', '${domain}/admin/', 1073741824, 'admin', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO mailbox (username, password, name, maildir, quota, local_part, domain, created, modified, active)
+  VALUES ('postmaster@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$1\\\$', SUBSTRING(MD5(RAND()), -8))), 'Postmaster', '${domain}/postmaster/', 1073741824, 'postmaster', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('abuse@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('hostmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('postmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('webmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('info@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
+  VALUES ('support@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
 \"",
   unless  => "mysql -umailuser -p${db_pass} -e \"SELECT 1 FROM mailserver.domain WHERE domain='${domain}'\" 2>/dev/null | grep -q 1",
   path    => ['/usr/bin'],
   require => Exec['postfixadmin-schema'],
+}
+
+# Create mailbox directories on disk
+exec { 'create-maildir-dirs':
+  command => "mkdir -p /var/mail/vmail/${domain}/admin /var/mail/vmail/${domain}/postmaster && chown -R vmail:vmail /var/mail/vmail/${domain}",
+  creates => "/var/mail/vmail/${domain}/admin",
+  path    => ['/bin', '/usr/bin'],
+  require => [User['vmail'], Exec['seed-mail-db']],
 }
 
 # MySQL config files for Postfix/Dovecot
