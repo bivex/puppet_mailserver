@@ -197,12 +197,12 @@ def test_imap():
     log_section("IMAP + IMAPS + POP3 + POP3S", 6)
 
     try:
-        imap = imaplib.IMAP4(VM_IP, IMAP, timeout=10)
+        imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10, ssl_context=ssl_ctx())
         imap.login(USER, PASS)
         imap.select("INBOX")
         _, data = imap.search(None, "ALL")
         count = len(data[0].split()) if data[0] else 0
-        log(f"IMAP {IMAP} — login OK, INBOX has {count} msgs")
+        log(f"IMAPS {IMAPS} — login OK, INBOX has {count} msgs")
         _, folders = imap.list()
         fnames = [f.decode().split('"/"')[-1].strip() for f in folders]
         for req in ["INBOX", "Junk", "Trash", "Sent", "Drafts"]:
@@ -210,7 +210,7 @@ def test_imap():
             log(f"Folder {req} — {'exists' if found else 'MISSING'}", ok=found)
         imap.logout()
     except Exception as e:
-        log(f"IMAP — {e}", ok=False)
+        log(f"IMAPS — {e}", ok=False)
 
     try:
         imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10, ssl_context=ssl_ctx())
@@ -220,15 +220,8 @@ def test_imap():
     except Exception as e:
         log(f"IMAPS — {e}", ok=False)
 
-    try:
-        pop = poplib.POP3(VM_IP, POP3, timeout=10)
-        pop.user(USER)
-        pop.pass_(PASS)
-        count, size = pop.stat()
-        log(f"POP3 {POP3} — {count} msgs, {size} bytes")
-        pop.quit()
-    except Exception as e:
-        log(f"POP3 — {e}", ok=False)
+    # POP3 plaintext auth disabled by policy — test SSL only
+    log(f"POP3 {POP3} — skipped (plaintext auth disabled by policy)")
 
     try:
         pop = poplib.POP3_SSL(VM_IP, POP3S, timeout=10, context=ssl_ctx())
@@ -241,15 +234,12 @@ def test_imap():
         log(f"POP3S — {e}", ok=False)
 
     try:
-        imap = imaplib.IMAP4(VM_IP, IMAP, timeout=5)
+        imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=5, ssl_context=ssl_ctx())
         imap.login(USER, "wrongpassword")
         log("IMAP wrong password — NOT rejected!", ok=False)
         imap.logout()
     except imaplib.IMAP4.error as e:
-        if b"Plaintext authentication disallowed" in str(e).encode() or b"PRIVACYREQUIRED" in str(e).encode():
-            log("IMAP wrong password — correctly rejected plaintext/privacy (SECURE)")
-        else:
-            log("IMAP wrong password — rejected correctly")
+        log("IMAP wrong password — rejected correctly")
 
 
 def test_imap_concurrent(conns=15):
@@ -343,7 +333,7 @@ def test_header_privacy():
     time.sleep(3)
 
     try:
-        imap = imaplib.IMAP4(VM_IP, IMAP, timeout=10)
+        imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10, ssl_context=ssl_ctx())
         imap.login(USER, PASS)
         imap.select("INBOX")
         _, data = imap.search(None, 'SUBJECT "Header test"')
@@ -482,7 +472,7 @@ def test_autoconfig():
 def test_quota():
     log_section("QUOTA", 13)
     try:
-        imap = imaplib.IMAP4(VM_IP, IMAP, timeout=10)
+        imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=10, ssl_context=ssl_ctx())
         imap.login(USER, PASS)
         caps = imap.capability()
         cap_str = " ".join(caps[0]) if caps else ""
@@ -648,7 +638,7 @@ def test_fail2ban(attempts=6):
     banned = False
     for i in range(attempts):
         try:
-            imap = imaplib.IMAP4(VM_IP, IMAP, timeout=5)
+            imap = imaplib.IMAP4_SSL(VM_IP, IMAPS, timeout=5, ssl_context=ssl_ctx())
             imap.login(USER, f"wrong_password_{i}")
         except imaplib.IMAP4.error:
             pass
