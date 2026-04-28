@@ -660,7 +660,7 @@ service { 'nginx':
 # =====================================================
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:roundcube@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'rcmail-${domain}-2024corp';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
   require => Package['roundcube'],
 }
 
