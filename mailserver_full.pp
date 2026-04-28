@@ -832,10 +832,11 @@ exec { 'ufw-allow-ssh':
 }
 
 # Each port gets its own unless check
-['25/tcp', '587/tcp', '465/tcp', '143/tcp', '993/tcp', '110/tcp', '995/tcp', '4190/tcp'].each |\| {
-  exec { "ufw-allow-":
-    command => "ufw allow ",
-    unless  => "ufw status | grep -q ''",
+$ufw_ports = ['25/tcp', '587/tcp', '465/tcp', '143/tcp', '993/tcp', '110/tcp', '995/tcp', '4190/tcp']
+$ufw_ports.each |$port| {
+  exec { "ufw-allow-${port}":
+    command => "ufw allow ${port}",
+    unless  => "ufw status | grep -q '${port}'",
     path    => ['/usr/sbin', '/bin'],
   }
 }
@@ -850,5 +851,5 @@ exec { 'ufw-enable':
   command => 'ufw --force enable',
   unless  => 'ufw status | grep -q "Status: active"',
   path    => ['/usr/sbin', '/bin'],
-  require => [Exec['ufw-allow-ssh'], Exec['ufw-allow-mail'], Exec['ufw-allow-web']],
+  require => [Exec['ufw-allow-ssh'], Exec['ufw-allow-web']],
 }
