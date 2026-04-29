@@ -888,57 +888,48 @@ file { '/etc/roundcube/plugins/markasjunk/config.inc.php':
 }
 
 # =====================================================
-# 2FA — Roundcube TOTP (twofactor_gauthenticator)
+# 2FA — Roundcube TOTP (twofactor_gauthenticator from GitHub)
 # =====================================================
 
-# SQL table for storing TOTP secrets per user
-exec { 'roundcube-2fa-table':
-  command => "mysql roundcube -e \"
-CREATE TABLE IF NOT EXISTS twofactor_gauthenticator (
-  user_id int(10) UNSIGNED NOT NULL,
-  secret varchar(80) NOT NULL DEFAULT '',
-  recovery_codes text,
-  created datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id),
-  CONSTRAINT tfk_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-\"",
-  unless  => "mysql -e \"SELECT 1 FROM information_schema.tables WHERE table_schema='roundcube' AND table_name='twofactor_gauthenticator'\" 2>/dev/null | grep -q 1",
-  path    => ['/usr/bin'],
-  require => Exec['roundcube-schema'],
+# Install plugin from GitHub (not in Ubuntu packages)
+exec { 'install-roundcube-2fa-plugin':
+  command => "git clone https://github.com/alexandregz/twofactor_gauthenticator.git /usr/share/roundcube/plugins/twofactor_gauthenticator && chown -R root:root /usr/share/roundcube/plugins/twofactor_gauthenticator",
+  unless  => "test -f /usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
+  path    => ['/usr/bin', '/usr/sbin'],
+  require => Package['roundcube'],
 }
 
 file { '/etc/roundcube/plugins/twofactor_gauthenticator':
   ensure => directory,
-  require => Package['roundcube-plugins'],
+  require => Exec['install-roundcube-2fa-plugin'],
 }
 
+# Config uses $rcmail_config (not $config) — plugin-specific format
+# TOTP secrets stored in roundcube.userprefs (no extra table needed)
 file { '/etc/roundcube/plugins/twofactor_gauthenticator/config.inc.php':
   ensure  => file,
   content => "<?php
-// Roundcube TOTP 2FA configuration
-\$config['twofactor_gauthenticator'] = true;
+// 2FA TOTP configuration for Roundcube
+// Force all users to set up 2FA on first login (false = optional)
+\$rcmail_config['force_enrollment_users'] = false;
 
-// Force 2FA setup for all users (set false to make it optional)
-\$config['force_enrollment'] = false;
+// IPs allowed to bypass 2FA
+\$rcmail_config['whitelist'] = array('127.0.0.0/8', '::1');
 
-// Require 2FA on every login (false = remember trusted browsers)
-\$config['force_2fa'] = true;
+// Allow 'remember this device for 30 days'
+\$rcmail_config['allow_save_device_30days'] = true;
 
-// Number of recovery codes generated per user
-\$config['recovery_codes_count'] = 8;
+// Show TOTP field as password dots
+\$rcmail_config['twofactor_formfield_as_password'] = true;
 
-// TOTP parameters (RFC 6238)
-\$config['secret_length'] = 16;
-\$config['totp_period'] = 30;
-\$config['totp_digits'] = 6;
-\$config['totp_digest'] = 'sha1';
+// All users allowed (empty array = everyone)
+\$rcmail_config['users_allowed_2FA'] = array();
 
-// Grace period (seconds) — allow previous/next TOTP window
-\$config['totp_window'] = 1;
+// Log failed 2FA attempts
+\$rcmail_config['enable_fail_logs'] = true;
 
-// Database-backed secrets (requires twofactor_gauthenticator table)
-\$config['db_backend'] = true;
+// Encrypt stored secrets with Roundcube DES key
+\$rcmail_config['twofactor_pref_encrypt'] = true;
 ?>",
   require => File['/etc/roundcube/plugins/twofactor_gauthenticator'],
 }
