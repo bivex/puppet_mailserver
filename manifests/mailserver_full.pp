@@ -922,8 +922,8 @@ file { '/etc/roundcube/plugins/twofactor_gauthenticator/config.inc.php':
 // Show TOTP field as password dots
 \$rcmail_config['twofactor_formfield_as_password'] = true;
 
-// All users allowed (empty array = everyone)
-\$rcmail_config['users_allowed_2FA'] = array();
+// All users allowed (null = everyone, array = only listed)
+\$rcmail_config['users_allowed_2FA'] = null;
 
 // Log failed 2FA attempts
 \$rcmail_config['enable_fail_logs'] = true;
