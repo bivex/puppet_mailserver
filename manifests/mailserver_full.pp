@@ -1027,7 +1027,7 @@ CREATE TABLE IF NOT EXISTS totp (
 
 # PostfixAdmin 4.0.1 — install from GitHub (not Ubuntu package which is 3.3.x)
 exec { 'install-postfixadmin':
-  command => "curl -sL https://api.github.com/repos/postfixadmin/postfixadmin/tarball/v4.0.1 | tar xz --strip-components=1 -C /opt/postfixadmin && cd /opt/postfixadmin && bash install.sh && chown -R www-data:www-data /opt/postfixadmin/templates_c",
+  command => "curl -sL https://api.github.com/repos/postfixadmin/postfixadmin/tarball/v4.0.1 | tar xz --strip-components=1 -C /opt/postfixadmin && cd /opt/postfixadmin && COMPOSER_ALLOW_SUPERUSER=1 HOME=/root bash install.sh && chown -R www-data:www-data /opt/postfixadmin/templates_c",
   creates => '/opt/postfixadmin/vendor/autoload.php',
   path    => ['/usr/bin', '/bin'],
   require => [Package['curl'], File['/opt/postfixadmin']],
