@@ -1,0 +1,198 @@
+@startuml
+!pragma charset UTF-8
+!include <archimate/Archimate>
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam defaultFontColor #212529
+skinparam component {
+  borderThickness 2
+  borderColor #333333
+  backgroundColor #FEFEFE
+  fontSize 12
+  fontStyle normal
+  roundCorner 10
+  shadowing true
+}
+skinparam component<<Business>> {
+  backgroundColor #FF6B6B
+  borderColor #FF6B6BDD
+}
+skinparam component<<Application>> {
+  backgroundColor #4ECDC4
+  borderColor #4ECDC4DD
+}
+skinparam component<<Technology>> {
+  backgroundColor #45B7D1
+  borderColor #45B7D1DD
+}
+skinparam component<<Physical>> {
+  backgroundColor #FFA07A
+  borderColor #FFA07ADD
+}
+skinparam component<<Motivation>> {
+  backgroundColor #98D8C8
+  borderColor #98D8C8DD
+}
+skinparam component<<Strategy>> {
+  backgroundColor #F7DC6F
+  borderColor #F7DC6FDD
+}
+skinparam component<<Implementation>> {
+  backgroundColor #BB8FCE
+  borderColor #BB8FCEDD
+}
+skinparam componentBorderThickness 2
+skinparam note {
+  backgroundColor #6C757D10
+  borderColor #6C757D
+  fontColor #212529
+}
+skinparam legend {
+  backgroundColor #FFFFFF
+  borderColor #DEE2E6
+  fontColor #212529
+}
+skinparam interface {
+  backgroundColor #28A745
+  borderColor #007ACC
+}
+skinparam package {
+  backgroundColor #6C757D20
+  borderColor #6C757D
+}
+skinparam node {
+  backgroundColor #007ACC15
+  borderColor #007ACC
+}
+skinparam arrow {
+  thickness 2
+  color #007ACC
+}
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam businessBackgroundColor #FF6B6B
+skinparam businessBorderColor #FF6B6BDD
+skinparam applicationBackgroundColor #4ECDC4
+skinparam applicationBorderColor #4ECDC4DD
+skinparam technologyBackgroundColor #45B7D1
+skinparam technologyBorderColor #45B7D1DD
+skinparam physicalBackgroundColor #FFA07A
+skinparam physicalBorderColor #FFA07ADD
+skinparam motivationBackgroundColor #98D8C8
+skinparam motivationBorderColor #98D8C8DD
+skinparam strategyBackgroundColor #F7DC6F
+skinparam strategyBorderColor #F7DC6FDD
+skinparam implementationBackgroundColor #BB8FCE
+skinparam implementationBorderColor #BB8FCEDD
+
+skinparam componentStyle uml2
+
+
+' Business Layer
+Technology_Service(cloudflare_dns, "Cloudflare DNS & CDN")
+Technology_Artifact(cloudflare_registrar, "Cloudflare Registrar")
+Technology_Node(vps1_hetzner, "VPS #1: Hetzner/DO")
+Technology_Node(vps2_landings, "VPS #2: Hetzner/DO")
+Technology_Node(vps3_portfolio, "GitHub Pages")
+Technology_SystemSoftware(openlitespeed, "OpenLiteSpeed / Nginx")
+Technology_SystemSoftware(php_wp, "PHP / WordPress")
+Technology_Service(cloudflare_pages, "Cloudflare Pages")
+Technology_Service(backblaze_b2, "Backblaze B2")
+Technology_Service(bitwarden, "Bitwarden")
+Technology_Artifact(domain, "yourdomain.com")
+Technology_Artifact(tracker_sub, "tracker.yourdomain.com")
+Technology_Artifact(go_sub, "go.yourdomain.com")
+Technology_Artifact(crm_sub, "crm.yourdomain.com")
+Application_Component(keitaro, "Keitaro Tracker")
+Application_Component(landing_static, "Static Landing Pages")
+Application_Component(landing_dynamic, "Dynamic Landing Pages")
+Application_Component(portfolio_site, "Portfolio Website")
+Application_Component(crm_notion, "Notion CRM")
+Application_Component(crm_hubspot, "HubSpot Free CRM")
+Application_Component(crm_pipedrive, "Pipedrive CRM")
+Application_Component(google_workspace, "Google Workspace")
+Application_Component(brevo, "Brevo (Sendinblue)")
+Application_Component(zoho_mail, "Zoho Mail")
+Application_DataObject(email_hello, "hello@domain.com")
+Application_DataObject(email_noreply, "noreply@domain.com")
+Application_DataObject(email_track, "track@domain.com")
+Business_Actor(freelancer, "Freelancer")
+Business_Actor(client, "Client")
+Business_Actor(affiliate_network, "Affiliate Network")
+Business_Actor(traffic_source, "Traffic Source")
+Business_Process(client_acquisition, "Client Acquisition")
+Business_Process(affiliate_marketing, "Affiliate Campaign")
+Business_Process(client_service, "Client Service Delivery")
+Business_Process(portfolio_mgmt, "Portfolio Management")
+Business_Process(email_mgmt, "Email Communication")
+Business_Process(backup_security, "Backup & Security")
+Business_Service(analytics_insights, "Analytics & Insights")
+Business_Service(client_comm_svc, "Client Communication")
+Business_Service(web_presence, "Web Presence")
+Business_Service(offer_landing, "Offer Landing Page")
+Technology_Artifact(payment_methods, "2+ Payment Methods")
+Business_Role(lead, "Lead / Visitor")
+Motivation_Constraint(offer_isolation, "Offer Isolation Policy")
+Motivation_Constraint(tracker_isolation, "Tracker Isolation Policy")
+Motivation_Goal(low_cost, "Low Cost Start ($20-30/mo)")
+Motivation_Goal(reliability, "High Reliability")
+Motivation_Goal(scalability, "Scalability")
+
+
+' Relationships
+Rel_Realization(cloudflare_registrar, domain, "realization")
+Rel_Association(domain, cloudflare_dns, "association")
+Rel_Association(tracker_sub, vps1_hetzner, "association")
+Rel_Association(go_sub, vps2_landings, "association")
+Rel_Association(crm_sub, crm_hubspot, "association")
+Rel_Flow(cloudflare_dns, tracker_sub, "flow")
+Rel_Flow(cloudflare_dns, go_sub, "flow")
+Rel_Flow(cloudflare_dns, domain, "flow")
+Rel_Assignment(keitaro, vps1_hetzner, "assignment")
+Rel_Assignment(openlitespeed, vps2_landings, "assignment")
+Rel_Assignment(php_wp, openlitespeed, "assignment")
+Rel_Assignment(portfolio_site, vps3_portfolio, "assignment")
+Rel_Realization(keitaro, analytics_insights, "realization")
+Rel_Association(google_workspace, email_hello, "association")
+Rel_Association(google_workspace, email_noreply, "association")
+Rel_Association(brevo, email_track, "association")
+Rel_Realization(email_hello, client_comm_svc, "realization")
+Rel_Assignment(freelancer, client_acquisition, "assignment")
+Rel_Assignment(freelancer, affiliate_marketing, "assignment")
+Rel_Assignment(freelancer, client_service, "assignment")
+Rel_Flow(traffic_source, affiliate_marketing, "flow")
+Rel_Triggering(affiliate_marketing, keitaro, "triggering")
+Rel_Flow(keitaro, landing_static, "flow")
+Rel_Triggering(client_acquisition, portfolio_site, "triggering")
+Rel_Triggering(client, client_service, "triggering")
+Rel_Triggering(portfolio_mgmt, portfolio_site, "triggering")
+Rel_Triggering(email_mgmt, google_workspace, "triggering")
+Rel_Triggering(email_mgmt, brevo, "triggering")
+Rel_Triggering(backup_security, backblaze_b2, "triggering")
+Rel_Triggering(backup_security, bitwarden, "triggering")
+Rel_Association(cloudflare_dns, backup_security, "association")
+Rel_Realization(landing_static, cloudflare_pages, "realization")
+Rel_Realization(landing_dynamic, php_wp, "realization")
+Rel_Triggering(lead, landing_static, "triggering")
+Rel_Realization(offer_landing, landing_static, "realization")
+Rel_Realization(web_presence, portfolio_site, "realization")
+Rel_Realization(web_presence, landing_static, "realization")
+Rel_Realization(offer_isolation, landing_static, "realization")
+Rel_Realization(tracker_isolation, keitaro, "realization")
+Rel_Influence(low_cost, cloudflare_pages, "influence")
+Rel_Influence(low_cost, vps3_portfolio, "influence")
+Rel_Influence(reliability, cloudflare_dns, "influence")
+Rel_Influence(scalability, vps1_hetzner, "influence")
+Rel_Serving(crm_notion, client_acquisition, "serving")
+Rel_Serving(crm_hubspot, client_acquisition, "serving")
+Rel_Serving(crm_pipedrive, client_acquisition, "serving")
+Rel_Serving(client_comm_svc, client_service, "serving")
+Rel_Serving(analytics_insights, affiliate_marketing, "serving")
+Rel_Flow(affiliate_network, keitaro, "flow")
+Rel_Association(payment_methods, backup_security, "association")
+Rel_Serving(zoho_mail, email_mgmt, "serving")
+Rel_Association(portfolio_site, domain, "association")
+
+@enduml

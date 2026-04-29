@@ -363,7 +363,7 @@ def check_vacation(host, user, password, domain):
         time.sleep(3)
         try:
             result = subprocess.run(
-                ["grep", vac_subject, "/var/log/mail.log"],
+                ["grep", fake_sender, "/var/log/mail.log"],
                 capture_output=True, text=True, timeout=5
             )
             if "vacation action" in result.stdout:

@@ -1,0 +1,142 @@
+@startuml
+!pragma charset UTF-8
+!include <archimate/Archimate>
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam defaultFontColor #212529
+skinparam component {
+  borderThickness 2
+  borderColor #333333
+  backgroundColor #FEFEFE
+  fontSize 12
+  fontStyle normal
+  roundCorner 10
+  shadowing true
+}
+skinparam component<<Business>> {
+  backgroundColor #FF6B6B
+  borderColor #FF6B6BDD
+}
+skinparam component<<Application>> {
+  backgroundColor #4ECDC4
+  borderColor #4ECDC4DD
+}
+skinparam component<<Technology>> {
+  backgroundColor #45B7D1
+  borderColor #45B7D1DD
+}
+skinparam component<<Physical>> {
+  backgroundColor #FFA07A
+  borderColor #FFA07ADD
+}
+skinparam component<<Motivation>> {
+  backgroundColor #98D8C8
+  borderColor #98D8C8DD
+}
+skinparam component<<Strategy>> {
+  backgroundColor #F7DC6F
+  borderColor #F7DC6FDD
+}
+skinparam component<<Implementation>> {
+  backgroundColor #BB8FCE
+  borderColor #BB8FCEDD
+}
+skinparam componentBorderThickness 2
+skinparam note {
+  backgroundColor #6C757D10
+  borderColor #6C757D
+  fontColor #212529
+}
+skinparam legend {
+  backgroundColor #FFFFFF
+  borderColor #DEE2E6
+  fontColor #212529
+}
+skinparam interface {
+  backgroundColor #28A745
+  borderColor #007ACC
+}
+skinparam package {
+  backgroundColor #6C757D20
+  borderColor #6C757D
+}
+skinparam node {
+  backgroundColor #007ACC15
+  borderColor #007ACC
+}
+skinparam arrow {
+  thickness 2
+  color #007ACC
+}
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam businessBackgroundColor #FF6B6B
+skinparam businessBorderColor #FF6B6BDD
+skinparam applicationBackgroundColor #4ECDC4
+skinparam applicationBorderColor #4ECDC4DD
+skinparam technologyBackgroundColor #45B7D1
+skinparam technologyBorderColor #45B7D1DD
+skinparam physicalBackgroundColor #FFA07A
+skinparam physicalBorderColor #FFA07ADD
+skinparam motivationBackgroundColor #98D8C8
+skinparam motivationBorderColor #98D8C8DD
+skinparam strategyBackgroundColor #F7DC6F
+skinparam strategyBorderColor #F7DC6FDD
+skinparam implementationBackgroundColor #BB8FCE
+skinparam implementationBorderColor #BB8FCEDD
+
+skinparam componentStyle uml2
+
+
+' Business Layer
+Technology_Service(cf, "Cloudflare")
+Technology_Artifact(cf_reg, "Cloudflare Registrar")
+Technology_Service(cf_pages, "Cloudflare Pages")
+Technology_Artifact(domain, "yourdomain.com")
+Technology_Node(vps1, "VPS #1 (Hetzner)")
+Technology_Node(vps2, "VPS #2 (Hetzner)")
+Technology_Node(gh_pages, "GitHub Pages")
+Technology_Service(b2, "Backblaze B2")
+Technology_Service(bw, "Bitwarden")
+Technology_SystemSoftware(ols, "OpenLiteSpeed")
+Technology_SystemSoftware(wp, "WordPress")
+Application_Component(keitaro, "Keitaro Tracker")
+Application_Component(static_lp, "Static Landing Pages")
+Application_Component(dyn_lp, "Dynamic Landing Pages")
+Application_Component(portfolio, "Portfolio Site")
+Application_Component(gws, "Google Workspace")
+Application_Component(brevo, "Brevo")
+Application_DataObject(mail_hello, "hello@domain.com")
+Application_DataObject(mail_noreply, "noreply@domain.com")
+Application_DataObject(mail_track, "track@domain.com")
+Application_Component(hubspot, "HubSpot CRM")
+Motivation_Constraint(iso_tracker, "Tracker Isolation")
+Motivation_Constraint(iso_offer, "Offer Isolation")
+Motivation_Goal(low_cost, "Low Cost / Scalable")
+
+
+' Relationships
+Rel_Realization(cf_reg, domain, "realization")
+Rel_Association(domain, cf, "association")
+Rel_Assignment(keitaro, vps1, "assignment")
+Rel_Assignment(ols, vps2, "assignment")
+Rel_Assignment(wp, ols, "assignment")
+Rel_Realization(dyn_lp, wp, "realization")
+Rel_Assignment(portfolio, gh_pages, "assignment")
+Rel_Realization(static_lp, cf_pages, "realization")
+Rel_Association(gws, mail_hello, "association")
+Rel_Association(gws, mail_noreply, "association")
+Rel_Association(brevo, mail_track, "association")
+Rel_Realization(iso_tracker, keitaro, "realization")
+Rel_Realization(iso_offer, static_lp, "realization")
+Rel_Influence(low_cost, cf_pages, "influence")
+Rel_Influence(low_cost, gh_pages, "influence")
+Rel_Flow(cf, vps1, "flow")
+Rel_Flow(cf, vps2, "flow")
+Rel_Flow(cf, gh_pages, "flow")
+Rel_Association(b2, vps1, "association")
+Rel_Association(b2, vps2, "association")
+
+@enduml

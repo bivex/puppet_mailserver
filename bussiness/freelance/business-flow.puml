@@ -1,0 +1,137 @@
+@startuml
+!pragma charset UTF-8
+!include <archimate/Archimate>
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam defaultFontColor #212529
+skinparam component {
+  borderThickness 2
+  borderColor #333333
+  backgroundColor #FEFEFE
+  fontSize 12
+  fontStyle normal
+  roundCorner 10
+  shadowing true
+}
+skinparam component<<Business>> {
+  backgroundColor #FF6B6B
+  borderColor #FF6B6BDD
+}
+skinparam component<<Application>> {
+  backgroundColor #4ECDC4
+  borderColor #4ECDC4DD
+}
+skinparam component<<Technology>> {
+  backgroundColor #45B7D1
+  borderColor #45B7D1DD
+}
+skinparam component<<Physical>> {
+  backgroundColor #FFA07A
+  borderColor #FFA07ADD
+}
+skinparam component<<Motivation>> {
+  backgroundColor #98D8C8
+  borderColor #98D8C8DD
+}
+skinparam component<<Strategy>> {
+  backgroundColor #F7DC6F
+  borderColor #F7DC6FDD
+}
+skinparam component<<Implementation>> {
+  backgroundColor #BB8FCE
+  borderColor #BB8FCEDD
+}
+skinparam componentBorderThickness 2
+skinparam note {
+  backgroundColor #6C757D10
+  borderColor #6C757D
+  fontColor #212529
+}
+skinparam legend {
+  backgroundColor #FFFFFF
+  borderColor #DEE2E6
+  fontColor #212529
+}
+skinparam interface {
+  backgroundColor #28A745
+  borderColor #007ACC
+}
+skinparam package {
+  backgroundColor #6C757D20
+  borderColor #6C757D
+}
+skinparam node {
+  backgroundColor #007ACC15
+  borderColor #007ACC
+}
+skinparam arrow {
+  thickness 2
+  color #007ACC
+}
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam businessBackgroundColor #FF6B6B
+skinparam businessBorderColor #FF6B6BDD
+skinparam applicationBackgroundColor #4ECDC4
+skinparam applicationBorderColor #4ECDC4DD
+skinparam technologyBackgroundColor #45B7D1
+skinparam technologyBorderColor #45B7D1DD
+skinparam physicalBackgroundColor #FFA07A
+skinparam physicalBorderColor #FFA07ADD
+skinparam motivationBackgroundColor #98D8C8
+skinparam motivationBorderColor #98D8C8DD
+skinparam strategyBackgroundColor #F7DC6F
+skinparam strategyBorderColor #F7DC6FDD
+skinparam implementationBackgroundColor #BB8FCE
+skinparam implementationBorderColor #BB8FCEDD
+
+skinparam componentStyle uml2
+
+
+' Business Layer
+Business_Actor(freelancer, "Freelancer")
+Business_Actor(client, "Client")
+Business_Actor(traffic, "Traffic Source")
+Business_Actor(network, "Affiliate Network")
+Business_Role(lead, "Lead / Visitor")
+Business_Process(acquisition, "Client Acquisition")
+Business_Process(affiliate, "Affiliate Campaign")
+Business_Process(delivery, "Service Delivery")
+Business_Service(web_svc, "Web Presence")
+Business_Service(comm_svc, "Client Communication")
+Business_Service(analytics_svc, "Analytics & Insights")
+Application_Component(keitaro, "Keitaro Tracker")
+Application_Component(portfolio, "Portfolio Site")
+Application_Component(landings, "Landing Pages")
+Application_Component(crm, "CRM (Notion/HubSpot/Pipedrive)")
+Application_Component(email, "Email Stack")
+Motivation_Goal(cost, "Low Cost Start")
+Motivation_Goal(reliable, "High Reliability")
+Motivation_Goal(scale, "Scalability")
+
+
+' Relationships
+Rel_Assignment(freelancer, acquisition, "assignment")
+Rel_Assignment(freelancer, affiliate, "assignment")
+Rel_Assignment(freelancer, delivery, "assignment")
+Rel_Flow(traffic, affiliate, "flow")
+Rel_Triggering(affiliate, keitaro, "triggering")
+Rel_Flow(keitaro, landings, "flow")
+Rel_Realization(keitaro, analytics_svc, "realization")
+Rel_Flow(network, keitaro, "flow")
+Rel_Triggering(lead, landings, "triggering")
+Rel_Triggering(acquisition, portfolio, "triggering")
+Rel_Serving(crm, acquisition, "serving")
+Rel_Realization(email, comm_svc, "realization")
+Rel_Serving(comm_svc, delivery, "serving")
+Rel_Serving(analytics_svc, affiliate, "serving")
+Rel_Realization(web_svc, portfolio, "realization")
+Rel_Realization(web_svc, landings, "realization")
+Rel_Triggering(client, delivery, "triggering")
+Rel_Influence(cost, acquisition, "influence")
+Rel_Influence(reliable, affiliate, "influence")
+Rel_Influence(scale, acquisition, "influence")
+
+@enduml
