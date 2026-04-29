@@ -140,7 +140,16 @@ INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('
 INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('postmaster@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
 INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('webmaster@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
 INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('info@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
-INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('support@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);\";
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('support@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('noreply@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('billing@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('sales@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('hr@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('security@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('marketing@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('legal@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('dev@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('office@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);\";
 echo \$sql;
 ",
   mode    => '0600',
