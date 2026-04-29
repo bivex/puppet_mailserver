@@ -892,9 +892,10 @@ file { '/etc/roundcube/plugins/markasjunk/config.inc.php':
 # =====================================================
 
 # Install plugin from GitHub (not in Ubuntu packages)
+# Ubuntu package uses INSTALL_PATH=/var/lib/roundcube/ so plugins must go there
 exec { 'install-roundcube-2fa-plugin':
-  command => "git clone https://github.com/alexandregz/twofactor_gauthenticator.git /usr/share/roundcube/plugins/twofactor_gauthenticator && chown -R root:root /usr/share/roundcube/plugins/twofactor_gauthenticator",
-  unless  => "test -f /usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
+  command => "git clone https://github.com/alexandregz/twofactor_gauthenticator.git /var/lib/roundcube/plugins/twofactor_gauthenticator && chown -R root:root /var/lib/roundcube/plugins/twofactor_gauthenticator",
+  unless  => "test -f /var/lib/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
   path    => ['/usr/bin', '/usr/sbin'],
   require => Package['roundcube'],
 }
@@ -905,7 +906,7 @@ file { '/usr/local/bin/patch-roundcube-2fa-nav.py':
   content => "#!/usr/bin/env python3
 import sys
 
-f = '/usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php'
+f = '/var/lib/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php'
 with open(f, 'r') as fh:
     content = fh.read()
 
@@ -953,7 +954,7 @@ print('Patched successfully')
 
 exec { 'patch-roundcube-2fa-nav':
   command => 'python3 /usr/local/bin/patch-roundcube-2fa-nav.py',
-  unless  => "grep -q 'settings_actions' /usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
+  unless  => "grep -q 'settings_actions' /var/lib/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
   path    => ['/usr/bin'],
   require => [Exec['install-roundcube-2fa-plugin'], File['/usr/local/bin/patch-roundcube-2fa-nav.py']],
 }
