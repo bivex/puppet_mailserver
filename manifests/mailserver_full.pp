@@ -38,11 +38,11 @@ package { $base_pkgs: ensure => installed }
 
 $web_pkgs = [
   'mariadb-server', 'mariadb-client',
+  'curl',
   'nginx', 'php8.3-fpm', 'php8.3-mysql', 'php8.3-mbstring',
   'php8.3-imap', 'php8.3-xml', 'php8.3-curl', 'php8.3-zip',
   'php8.3-gd', 'php8.3-intl',
   'roundcube', 'roundcube-plugins',
-  'postfixadmin',
   'certbot', 'python3-certbot-nginx',
 ]
 package { $web_pkgs: ensure => installed }
@@ -764,7 +764,7 @@ service { 'php8.3-fpm':
 
 file { '/etc/nginx/sites-available/mail.conf':
   ensure  => file,
-  content => "limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\nserver {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_stapling on;\n  ssl_stapling_verify on;\n  resolver 8.8.8.8 8.8.4.4 valid=300s;\n  resolver_timeout 5s;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: testing\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_read_timeout 900s;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /usr/share/postfixadmin/public/;\n    index index.php;\n    if (!-e \$request_filename) { rewrite ^/admin/(.*)$ /admin/index.php?\$1 last; }\n  }\n\n  # Block setup.php — localhost only\n  location ~ ^/admin/setup\\.php\$ {\n    alias /usr/share/postfixadmin/public/;\n    allow 127.0.0.1;\n    allow ::1;\n    deny all;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/setup.php;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n    fastcgi_read_timeout 900s;\n  }\n\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /usr/share/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /usr/share/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
+  content => "limit_req_zone \$binary_remote_addr zone=login:10m rate=5r/m;\n\nserver {\n  listen 80;\n  listen [::]:80;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  # Let's Encrypt\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  location / {\n    return 301 https://\$host\$request_uri;\n  }\n}\n\nserver {\n  listen 443 ssl;\n  listen [::]:443 ssl;\n  server_name ${hostname} ${domain} autodiscover.${domain} autoconfig.${domain};\n  root /var/www/html;\n\n  ssl_certificate ${ssl_cert};\n  ssl_certificate_key ${ssl_key};\n  ssl_protocols TLSv1.2 TLSv1.3;\n  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;\n  ssl_prefer_server_ciphers on;\n  ssl_stapling on;\n  ssl_stapling_verify on;\n  resolver 8.8.8.8 8.8.4.4 valid=300s;\n  resolver_timeout 5s;\n  ssl_session_cache shared:SSL:10m;\n  ssl_session_timeout 10m;\n\n  # Security headers\n  add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n  add_header X-Frame-Options \"SAMEORIGIN\" always;\n  add_header X-Content-Type-Options \"nosniff\" always;\n  add_header X-Robots-Tag \"noindex, nofollow\" always;\n  add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n\n  # Let's Encrypt renewal\n  location /.well-known/acme-challenge/ {\n    root /var/www/html;\n  }\n\n  # MTA-STS policy\n  location /.well-known/mta-sts.txt {\n    default_type text/plain;\n    return 200 'version: STSv1\\nmode: testing\\nmax_age: 604800\\nmx: ${hostname}\\n';\n  }\n\n  # Roundcube webmail\n  location /mail {\n    alias /var/lib/roundcube;\n    index index.php;\n    location ~ ^/mail/(.+\\.php)(.*)$ {\n      include fastcgi_params;\n      fastcgi_read_timeout 900s;\n      fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n      fastcgi_param SCRIPT_FILENAME \$request_filename;\n      fastcgi_param HTTPS on;\n    }\n    location ~ ^/mail/(.*)$ {\n      alias /var/lib/roundcube/\$1;\n    }\n  }\n\n  # PostfixAdmin\n  location /admin {\n    alias /opt/postfixadmin/public/;\n    index index.php;\n    if (!-e \$request_filename) { rewrite ^/admin/(.*)$ /admin/index.php?\$1 last; }\n  }\n\n  # Block setup.php — localhost only\n  location ~ ^/admin/setup\\.php\$ {\n    alias /opt/postfixadmin/public/;\n    allow 127.0.0.1;\n    allow ::1;\n    deny all;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /opt/postfixadmin/public/setup.php;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n    fastcgi_read_timeout 900s;\n  }\n\n  location ~ ^/admin/(.+\\.php)$ {\n    alias /opt/postfixadmin/public/;\n    limit_req zone=login burst=5 nodelay;\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    fastcgi_param SCRIPT_FILENAME /opt/postfixadmin/public/\$1;\n    fastcgi_param HTTPS on;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n  }\n\n  # Autodiscover (Outlook)\n  location /autodiscover/autodiscover.xml {\n    fastcgi_pass unix:/run/php/php8.3-fpm.sock;\n    include fastcgi_params;\n      fastcgi_read_timeout 900s;\n    fastcgi_param SCRIPT_FILENAME /var/www/html/autodiscover.php;\n    fastcgi_param HTTPS on;\n  }\n\n  # Autoconfig (Thunderbird)\n  location /.well-known/autoconfig/mail/config-v1.1.xml {\n    default_type application/xml;\n    return 200 '<?xml version=\"1.0\"?><clientConfig version=\"1.1\"><emailProvider id=\"${domain}\"><domain>${domain}</domain><displayName>Mail</displayName><incomingServer type=\"imap\"><hostname>${hostname}</hostname><port>993</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><incomingServer type=\"pop3\"><hostname>${hostname}</hostname><port>995</port><socketType>SSL</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></incomingServer><outgoingServer type=\"smtp\"><hostname>${hostname}</hostname><port>587</port><socketType>STARTTLS</socketType><username>%EMAILADDRESS%</username><authentication>password-cleartext</authentication></outgoingServer></emailProvider></clientConfig>';\n  }\n}\n",
   notify  => Service['nginx'],
 }
 
@@ -1025,11 +1025,44 @@ CREATE TABLE IF NOT EXISTS totp (
   require => Exec['postfixadmin-schema'],
 }
 
+# PostfixAdmin 4.0.1 — install from GitHub (not Ubuntu package which is 3.3.x)
+exec { 'install-postfixadmin':
+  command => "curl -sL https://api.github.com/repos/postfixadmin/postfixadmin/tarball/v4.0.1 | tar xz --strip-components=1 -C /opt/postfixadmin && cd /opt/postfixadmin && bash install.sh && chown -R www-data:www-data /opt/postfixadmin/templates_c",
+  creates => '/opt/postfixadmin/vendor/autoload.php',
+  path    => ['/usr/bin', '/bin'],
+  require => [Package['curl'], File['/opt/postfixadmin']],
+}
+
+file { '/opt/postfixadmin':
+  ensure => directory,
+  owner  => 'root',
+  group  => 'www-data',
+}
+
+file { '/opt/postfixadmin/templates_c':
+  ensure => directory,
+  owner  => 'www-data',
+  group  => 'www-data',
+  mode   => '0770',
+  require => Exec['install-postfixadmin'],
+}
+
+# Config: link from /etc into install dir
+file { '/opt/postfixadmin/config.local.php':
+  ensure => symlink,
+  target => '/etc/postfixadmin/config.local.php',
+  require => Exec['install-postfixadmin'],
+}
+
+file { '/etc/postfixadmin':
+  ensure => directory,
+}
+
 # PostfixAdmin config: enable 2FA
 file { '/etc/postfixadmin/config.local.php':
   ensure  => file,
   content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'php_crypt:SHA512';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'NO';\n\$CONF['password_expiration'] = 'NO';\n\n// Setup password — required for /admin/setup.php\n\$CONF['setup_password'] = '${setup_pw_hash}';\n\n// 2FA / TOTP\n\$CONF['totp'] = 'YES';\n\$CONF['totp_admin'] = 'YES';\n\$CONF['totp_user'] = 'YES';\n?>",
-  require => Package['postfixadmin'],
+  require => File['/etc/postfixadmin'],
 }
 
 # Rate-limit PostfixAdmin login page in Nginx (stricter for admin panel)
@@ -1039,19 +1072,18 @@ file { '/etc/postfixadmin/config.local.php':
 # POSTFIXADMIN SCHEMA
 # =====================================================
 
-# PostfixAdmin schema
+# PostfixAdmin schema — created by upgrade.php on first run
 exec { 'postfixadmin-schema':
-  command => "mysql mailserver < /root/PuppetCode/sql/postfixadmin_schema.sql",
-  unless  => "mysql -umailuser -p${db_pass} -e 'SHOW TABLES LIKE \"domain\"' mailserver 2>/dev/null | grep -q domain",
+  command => "cd /opt/postfixadmin && php public/upgrade.php",
+  creates => '/opt/postfixadmin/.schema-initialized',
   path    => ['/usr/bin'],
-  require => [Exec['create-mail-db'], File['/etc/postfixadmin/config.local.php']],
+  require => [Exec['create-mail-db'], File['/etc/postfixadmin/config.local.php'], Exec['install-postfixadmin']],
 }
 
-# PostfixAdmin config version (required for upgrade.php)
-exec { 'postfixadmin-seed':
-  command => "mysql mailserver -e \"INSERT IGNORE INTO config (name, value) VALUES ('version', '1847');\"",
-  unless  => "mysql -umailuser -p${db_pass} -e \"SELECT value FROM mailserver.config WHERE name='version'\" 2>/dev/null | grep -q 1847",
-  path    => ['/usr/bin'],
+# Mark schema as initialized
+file { '/opt/postfixadmin/.schema-initialized':
+  ensure  => file,
+  content => '4.0.1',
   require => Exec['postfixadmin-schema'],
 }
 
