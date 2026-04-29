@@ -340,53 +340,46 @@ def check_vacation(host, user, password, domain):
         fail("Vacation auto-reply (sieve setup)", str(e))
         return False
 
-    # 2) Send test mail from second address to user (triggers vacation)
+    # 2) Send from unique address via localhost:25 (bypasses SPF for local mail)
+    fake_sender = f"smoke-{msg_id}@{domain}"
     msg = MIMEText("Vacation auto-reply smoke test body")
     msg["Subject"] = vac_subject
-    msg["From"] = sender
+    msg["From"] = fake_sender
     msg["To"] = user
 
     try:
-        smtp_ctx = ssl.create_default_context()
-        smtp_ctx.check_hostname = False
-        smtp_ctx.verify_mode = ssl.CERT_NONE
-        with smtplib.SMTP(host, 587, timeout=10) as smtp:
+        with smtplib.SMTP("127.0.0.1", 25, timeout=10) as smtp:
             smtp.ehlo()
-            smtp.starttls(context=smtp_ctx)
-            smtp.ehlo()
-            smtp.login(sender, sender_password)
-            smtp.sendmail(sender, [user], msg.as_string())
+            smtp.sendmail(fake_sender, [user], msg.as_string())
     except Exception as e:
         fail("Vacation auto-reply (send trigger)", str(e))
         _vacation_cleanup(host, user, password)
         return False
 
-    # 3) Check mail log for "sent vacation response" — proves vacation fired
+    # 3) Check mail log for vacation action — proves vacation fired
     import subprocess
     found = False
     for attempt in range(1, 7):
         time.sleep(3)
         try:
             result = subprocess.run(
-                ["grep", "-c", "vacation action: sent vacation response", "/var/log/mail.log"],
+                ["grep", vac_subject, "/var/log/mail.log"],
                 capture_output=True, text=True, timeout=5
             )
-            if result.returncode == 0 and int(result.stdout.strip()) > 0:
+            if "vacation action" in result.stdout:
                 found = True
                 break
         except Exception:
             continue
 
-    # 4) Cleanup: deactivate vacation sieve script
-
-    # 4) Cleanup: deactivate vacation sieve script
+    # 4) Cleanup
     _vacation_cleanup(host, user, password)
 
     if found:
-        ok(f"Vacation auto-reply received (attempt {attempt})")
+        ok(f"Vacation auto-reply fired (attempt {attempt})")
         return True
     else:
-        fail("Vacation auto-reply", "auto-reply not found in INBOX after 60s")
+        fail("Vacation auto-reply", "no vacation action in mail.log after 18s")
         return False
 
 
