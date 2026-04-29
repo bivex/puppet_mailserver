@@ -899,6 +899,36 @@ exec { 'install-roundcube-2fa-plugin':
   require => Package['roundcube'],
 }
 
+# Patch: add 2FA link to Roundcube settings navigation
+exec { 'patch-roundcube-2fa-nav':
+  command => "python3 -c \"
+f = '/usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php'
+with open(f, 'r') as fh: content = fh.read()
+old = \\\"\\\$this->add_texts('localization/', true);\\\"
+new = \\\"\\\"\\\"\\\$this->add_texts('localization/', true);
+
+        // Add 2FA link to settings navigation
+        \\\$this->add_hook('settings_actions', function(\\\$args) {
+            \\\$args['actions'][] = array(
+                'action' => 'plugin.twofactor_gauthenticator',
+                'label' => '2FA',
+                'type' => 'link',
+                'domain' => 'twofactor_gauthenticator',
+            );
+            return \\\$args;
+        });\\\"\\\"\\\"
+if old in content:
+    content = content.replace(old, new, 1)
+    with open(f, 'w') as fh: fh.write(content)
+    print('Patched')
+else:
+    print('Already patched')
+\"",
+  unless  => "grep -q 'settings_actions' /usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
+  path    => ['/usr/bin'],
+  require => Exec['install-roundcube-2fa-plugin'],
+}
+
 file { '/etc/roundcube/plugins/twofactor_gauthenticator':
   ensure => directory,
   require => Exec['install-roundcube-2fa-plugin'],
