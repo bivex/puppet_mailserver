@@ -286,32 +286,120 @@ def check_dns(domain):
 
 
 # ── Vacation auto-reply ────────────────────────────────────────────────────
-def check_vacation(host, sender_user, sender_pass, vacation_user):
-    """Send mail to vacation_user, check if auto-reply arrives at sender."""
-    msg_id = str(uuid.uuid4())[:8]
-    subject = f"[vacation-test] {msg_id}"
-    body = "Vacation auto-reply smoke test"
+def check_vacation(host, user, password, domain):
+    """Full vacation cycle: enable via Sieve → send mail → check auto-reply → disable."""
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = sender_user
-    msg["To"] = vacation_user
+    msg_id = str(uuid.uuid4())[:8]
+    vac_subject = f"[vacation-test] {msg_id}"
+    local_part = user.split("@")[0]
+
+    # 1) Upload vacation sieve script
+    sieve_script = f'require ["vacation"];\nvacation\n  :subject "Out of Office (smoke test)"\n  "I am currently out of the office. This is an automated smoke test reply.";\n'
+    try:
+        s = socket.create_connection((host, 4190), timeout=10)
+        banner = s.recv(4096).decode(errors="replace")
+        if "OK" not in banner:
+            fail("Vacation auto-reply", f"Sieve banner error: {banner[:80]}")
+            return False
+
+        # AUTHENTICATE PLAIN
+        import base64
+        auth_str = f"\x00{user}\x00{password}"
+        s.sendall(f'AUTHENTICATE "PLAIN" "{base64.b64encode(auth_str.encode()).decode()}"\r\n')
+        resp = s.recv(4096).decode(errors="replace")
+        if "OK" not in resp:
+            fail("Vacation auto-reply", f"Sieve AUTH failed: {resp[:80]}")
+            s.close()
+            return False
+
+        # PUTSCRIPT
+        encoded = sieve_script.replace('"', '\\"')
+        s.sendall(f'PUTSCRIPT "smoke-vacation" {{{len(sieve_script)}}}\r\n{sieve_script}\r\n')
+        resp = s.recv(4096).decode(errors="replace")
+        if "OK" not in resp:
+            fail("Vacation auto-reply", f"Sieve PUTSCRIPT failed: {resp[:80]}")
+            s.close()
+            return False
+
+        # SETACTIVE
+        s.sendall(b'SETACTIVE "smoke-vacation"\r\n')
+        resp = s.recv(4096).decode(errors="replace")
+        if "OK" not in resp:
+            fail("Vacation auto-reply", f"Sieve SETACTIVE failed: {resp[:80]}")
+            s.close()
+            return False
+        s.close()
+    except Exception as e:
+        fail("Vacation auto-reply (sieve setup)", str(e))
+        return False
+
+    # 2) Send test mail to self (triggers vacation)
+    msg = MIMEText("Vacation auto-reply smoke test body")
+    msg["Subject"] = vac_subject
+    msg["From"] = user
+    msg["To"] = user
 
     try:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
+        smtp_ctx = ssl.create_default_context()
+        smtp_ctx.check_hostname = False
+        smtp_ctx.verify_mode = ssl.CERT_NONE
         with smtplib.SMTP(host, 587, timeout=10) as smtp:
             smtp.ehlo()
-            smtp.starttls(context=ctx)
+            smtp.starttls(context=smtp_ctx)
             smtp.ehlo()
-            smtp.login(sender_user, sender_pass)
-            smtp.sendmail(sender_user, [vacation_user], msg.as_string())
-
-        ok(f"Vacation: test sent to {vacation_user}")
+            smtp.login(user, password)
+            smtp.sendmail(user, [user], msg.as_string())
     except Exception as e:
-        fail("Vacation: send test", str(e))
+        fail("Vacation auto-reply (send trigger)", str(e))
+        _vacation_cleanup(host, user, password)
+        return False
+
+    # 3) Wait and check IMAP for auto-reply
+    found = False
+    for attempt in range(1, 13):
+        time.sleep(5)
+        try:
+            with imaplib.IMAP4_SSL(host, 993, ssl_context=ctx) as imap:
+                imap.login(user, password)
+                imap.select("INBOX")
+                _, data = imap.search(None, f'SUBJECT "Out of Office (smoke test)"')
+                if data[0]:
+                    found = True
+                    break
+        except Exception:
+            continue
+
+    # 4) Cleanup: deactivate vacation sieve script
+    _vacation_cleanup(host, user, password)
+
+    if found:
+        ok(f"Vacation auto-reply received (attempt {attempt})")
+        return True
+    else:
+        fail("Vacation auto-reply", "auto-reply not found in INBOX after 60s")
+        return False
+
+
+def _vacation_cleanup(host, user, password):
+    """Deactivate and delete the smoke-vacation sieve script."""
+    try:
+        import base64
+        s = socket.create_connection((host, 4190), timeout=5)
+        s.recv(4096)
+        auth_str = f"\x00{user}\x00{password}"
+        s.sendall(f'AUTHENTICATE "PLAIN" "{base64.b64encode(auth_str.encode()).decode()}"\r\n')
+        s.recv(4096)
+        s.sendall(b'SETACTIVE ""\r\n')
+        s.recv(4096)
+        s.sendall(b'DELETESCRIPT "smoke-vacation"\r\n')
+        s.recv(4096)
+        s.sendall(b'LOGOUT\r\n')
+        s.close()
+    except Exception:
+        pass
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -363,7 +451,11 @@ def main():
     print(f"\n{BOLD}── Sieve ──{RESET}")
     check_sieve(h)
 
-    # 7. DNS
+    # 7. Vacation auto-reply
+    print(f"\n{BOLD}── Vacation ──{RESET}")
+    check_vacation(h, u, p, d)
+
+    # 8. DNS
     print(f"\n{BOLD}── DNS ──{RESET}")
     check_dns(d)
 
