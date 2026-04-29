@@ -798,7 +798,7 @@ service { 'nginx':
 # des_key should be unique per installation — change for production
 file { '/etc/roundcube/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:${rc_db_pass}@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','twofactor_gauthenticator'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n?>",
+  content => "<?php\n\$config['db_dsnw'] = 'mysql://roundcube:${rc_db_pass}@localhost/roundcube';\n\$config['imap_host'] = 'ssl://localhost:993';\n\$config['smtp_host'] = 'tls://localhost:587';\n\$config['smtp_user'] = '%u';\n\$config['smtp_pass'] = '%p';\n\$config['support_url'] = 'mailto:postmaster@${domain}';\n\$config['product_name'] = 'Corporate Mail';\n\$config['des_key'] = 'fm9XJ23vKpLq7wBnRtYcMdAu';\n\$config['plugins'] = ['archive','zipdownload','managesieve','markasjunk','newmail_notifier','twofactor_gauthenticator','password','new_user_identity'];\n\$config['language'] = 'en_US';\n\$config['enable_installer'] = false;\n\n// UI defaults\n\$config['skin'] = 'elastic';\n\$config['layout'] = 'widescreen';\n\$config['preview_pane'] = true;\n\$config['htmleditor'] = 1;\n\$config['show_images'] = 1;\n\$config['default_font'] = 'Verdana';\n\$config['date_format'] = 'Y-m-d';\n\$config['time_format'] = 'H:i';\n\$config['draft_autosave'] = 300;\n\$config['create_default_folders'] = true;\n\$config['default_imap_folders'] = ['INBOX', 'Sent', 'Drafts', 'Junk', 'Trash'];\n\$config['mime_param_folding'] = 1;\n\$config['request_mdn'] = true;\n\$config['mdn_default'] = false;\n\$config['dsn_default'] = false;\n\n// Identity — auto-create from login email\n\$config['email_dns_check'] = false;\n\n// SSL bypass for self-signed certs — REMOVE after installing Let's Encrypt\n\$config['imap_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['smtp_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\$config['managesieve_conn_options'] = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));\n\n// Session security\n\$config['ip_check'] = false;\n\$config['sess_lifetime'] = 30;\n?>",
   require => Package['roundcube'],
 }
 
@@ -825,10 +825,31 @@ file { '/var/lib/roundcube/temp':
   require => Exec['roundcube-schema'],
 }
 
-# Roundcube managesieve plugin config
+# Roundcube managesieve plugin config — vacation + forward + filters
 file { '/etc/roundcube/plugins/managesieve/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['managesieve_host'] = 'localhost';\n\$config['managesieve_port'] = 4190;\n\$config['managesieve_auth_type'] = '';\n\$config['managesieve_vacation'] = 1;\n?>",
+  content => "<?php\n\$config['managesieve_host'] = 'localhost';\n\$config['managesieve_port'] = 4190;\n\$config['managesieve_auth_type'] = '';\n\n// Vacation (Out of Office) — enable with sensible defaults\n\$config['managesieve_vacation'] = 1;\n\$config['managesieve_vacation_interval'] = 1;\n\$config['managesieve_vacation_addresses_init'] = true;\n\$config['managesieve_vacation_from_init'] = true;\n\n// Forward / redirect\n\$config['managesieve_forward'] = 1;\n\n// Default sieve script for new users\n\$config['managesieve_default'] = '/etc/dovecot/sieve/default.sieve';\n\n// Script name on server\n\$config['managesieve_script_name'] = 'managesieve';\n\$config['managesieve_filename_extension'] = '.sieve';\n\$config['managesieve_debug'] = false;\n\$config['managesieve_replace_delimiter'] = '';\n\$config['managesieve_disabled_extensions'] = [];\n\$config['managesieve_kolab_master'] = false;\n\n// Headers shown in filter rules\n\$config['managesieve_default_headers'] = ['Subject', 'From', 'To', 'Cc'];\n?>",
+  require => Package['roundcube-plugins'],
+}
+
+# Roundcube password plugin — allow users to change mail password
+file { '/etc/roundcube/plugins/password/config.inc.php':
+  ensure  => file,
+  content => "<?php\n\$config['password_driver'] = 'sql';\n\$config['password_db_dsn'] = 'mysql://mailuser:${db_pass}@127.0.0.1/mailserver';\n\$config['password_query'] = 'UPDATE mailbox SET password=%P WHERE username=%u AND active=1';\n\$config['password_crypt_hash'] = 'sha512';\n\$config['password_hash_algorithm'] = 'sha512';\n\$config['password_hash_base64'] = false;\n\$config['password_minimum_length'] = 8;\n\$config['password_require_nonalpha'] = false;\n?>",
+  require => Package['roundcube-plugins'],
+}
+
+# Roundcube newmail_notifier — desktop + sound notifications
+file { '/etc/roundcube/plugins/newmail_notifier/config.inc.php':
+  ensure  => file,
+  content => "<?php\n// Desktop notification on new mail\n\$config['newmail_notifier_desktop'] = true;\n// Sound notification\n\$config['newmail_notifier_sound'] = true;\n// Check interval in seconds (default 60)\n\$config['newmail_notifier_check_interval'] = 60;\n?>",
+  require => Package['roundcube-plugins'],
+}
+
+# Roundcube markasjunk plugin config
+file { '/etc/roundcube/plugins/markasjunk/config.inc.php':
+  ensure  => file,
+  content => "<?php\n// Move to Junk folder on mark as spam\n\$config['markasjunk_learning_driver'] = 'cmd_learn';\n\$config['markasjunk_spam_cmd'] = 'sa-learn --spam --username=%u --no-sync';\n\$config['markasjunk_ham_cmd'] = 'sa-learn --ham --username=%u --no-sync';\n?>",
   require => Package['roundcube-plugins'],
 }
 
