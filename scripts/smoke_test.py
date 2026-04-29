@@ -151,10 +151,18 @@ def check_roundcube(host, user, password):
 
         conn = HTTPSConnection(host, 443, context=ctx, timeout=10)
 
-        # Get login page + token
+        # GET login page + extract CSRF token + session cookie
         conn.request("GET", "/mail/?_task=login")
         resp = conn.getresponse()
         body = resp.read().decode(errors="replace")
+
+        cookies = {}
+        for hdr in resp.getheaders():
+            if hdr[0].lower() == "set-cookie":
+                part = hdr[1].split(";")[0]
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    cookies[k.strip()] = v.strip()
 
         token = None
         for line in body.splitlines():
@@ -167,7 +175,9 @@ def check_roundcube(host, user, password):
             fail("Roundcube web login", "CSRF token not found")
             return False
 
-        # POST login
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+        # POST login with cookies
         data = urlencode({
             "_token": token,
             "_user": user,
@@ -176,20 +186,33 @@ def check_roundcube(host, user, password):
             "_action": "login",
         })
         conn.request("POST", "/mail/?_task=login", body=data,
-                      headers={"Content-Type": "application/x-www-form-urlencoded"})
+                      headers={
+                          "Content-Type": "application/x-www-form-urlencoded",
+                          "Cookie": cookie_str,
+                      })
         resp = conn.getresponse()
 
+        # Merge new cookies
+        for hdr in resp.getheaders():
+            if hdr[0].lower() == "set-cookie":
+                part = hdr[1].split(";")[0]
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    cookies[k.strip()] = v.strip()
+
+        cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+
         # Follow redirect to mail dashboard
-        if resp.status == 302:
+        if resp.status in (302, 301):
             loc = resp.getheader("Location", "")
-            conn.request("GET", loc)
+            resp.read()
+            conn.request("GET", loc, headers={"Cookie": cookie_str})
             resp = conn.getresponse()
 
-        if resp.status == 200:
-            page = resp.read().decode(errors="replace")
-            if "logout" in page.lower() or "settings" in page.lower():
-                ok("Roundcube web login")
-                return True
+        page = resp.read().decode(errors="replace")
+        if resp.status == 200 and ("logout" in page.lower() or "_task=mail" in page):
+            ok("Roundcube web login")
+            return True
 
         fail("Roundcube web login", f"HTTP {resp.status}")
         return False
