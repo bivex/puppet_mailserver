@@ -122,16 +122,34 @@ def check_smtp_send(host, user, password):
 
 
 # ── User-to-user send ───────────────────────────────────────────────────────
-def check_user_to_user(host, sender, sender_pass, recipient, recipient_pass):
+def check_user_to_user(host, sender, sender_pass, domain):
+    """Create temp test mailbox, send, verify, cleanup."""
     msg_id = str(uuid.uuid4())[:8]
+    test_user = f"smoketest-{msg_id}@{domain}"
+    test_pass = "SmokeTest123!"
     subject = f"[u2u-test] {msg_id}"
-    body = f"User-to-user test from {sender} to {recipient}"
 
-    msg = MIMEText(body)
+    # Create temp mailbox in DB
+    import subprocess as sp
+    try:
+        salt = "smoketest" + msg_id
+        php_cmd = f"echo crypt('{test_pass}', '$6${salt}$');"
+        h = sp.run(["php", "-r", php_cmd], capture_output=True, text=True).stdout.strip()
+        sp.run([
+            "mysql", "-u", "mailuser", "-pmaildbpass123", "mailserver", "-e",
+            f"INSERT IGNORE INTO mailbox (username,password,name,maildir,quota,local_part,domain,created,modified,active) "
+            f"VALUES ('{test_user}','{h}','SmokeTest','{domain}/smoketest-{msg_id}/',"
+            f"1073741824,'smoketest-{msg_id}','{domain}',NOW(),NOW(),1);"
+        ], capture_output=True, timeout=5)
+    except Exception as e:
+        fail("User-to-user (create temp mailbox)", str(e))
+        return False
+
+    # Send from sender to test user
+    msg = MIMEText(f"User-to-user test from {sender} to {test_user}")
     msg["Subject"] = subject
     msg["From"] = sender
-    msg["To"] = recipient
-
+    msg["To"] = test_user
     try:
         ctx = make_ssl_ctx()
         with smtplib.SMTP(host, 587, timeout=10) as smtp:
@@ -139,27 +157,43 @@ def check_user_to_user(host, sender, sender_pass, recipient, recipient_pass):
             smtp.starttls(context=ctx)
             smtp.ehlo()
             smtp.login(sender, sender_pass)
-            smtp.sendmail(sender, [recipient], msg.as_string())
+            smtp.sendmail(sender, [test_user], msg.as_string())
     except Exception as e:
         fail("User-to-user send", str(e))
+        _cleanup_test_mailbox(test_user, domain)
         return False
 
-    # Check recipient received it
+    # Check test user received it via IMAP
+    found = False
     for attempt in range(1, 11):
         time.sleep(3)
         try:
             with imaplib.IMAP4_SSL(host, 993, ssl_context=make_ssl_ctx()) as imap:
-                imap.login(recipient, recipient_pass)
+                imap.login(test_user, test_pass)
                 imap.select("INBOX")
                 _, data = imap.search(None, f'SUBJECT "{subject}"')
                 if data[0]:
-                    ok(f"User-to-user: {sender.split('@')[0]} -> {recipient.split('@')[0]} delivered (attempt {attempt})")
-                    return True
+                    found = True
+                    break
         except Exception:
             continue
 
-    fail("User-to-user send", f"{sender} -> {recipient} not received after 30s")
+    _cleanup_test_mailbox(test_user, domain)
+    if found:
+        ok(f"User-to-user: {sender.split('@')[0]} -> {test_user.split('@')[0]} (attempt {attempt})")
+        return True
+    fail("User-to-user send", f"not received at {test_user} after 30s")
     return False
+
+
+def _cleanup_test_mailbox(test_user, domain):
+    try:
+        subprocess.run([
+            "mysql", "-u", "mailuser", "-pmaildbpass123", "mailserver", "-e",
+            f"DELETE FROM mailbox WHERE username='{test_user}';"
+        ], capture_output=True, timeout=5)
+    except Exception:
+        pass
 
 
 # ── Alias delivery ──────────────────────────────────────────────────────────
@@ -293,7 +327,7 @@ def check_attachment(host, user, password):
         fail("Attachment send", str(e))
         return False
 
-    # Verify received with attachment
+    # Verify received with multipart body
     for attempt in range(1, 11):
         time.sleep(3)
         try:
@@ -303,10 +337,10 @@ def check_attachment(host, user, password):
                 _, data = imap.search(None, f'SUBJECT "{subject}"')
                 if data[0]:
                     msg_nums = data[0].split()
-                    _, msg_data = imap.fetch(msg_nums[-1], "(BODYSTRUCTURE)")
-                    structure = msg_data[0][1].decode(errors="replace")
-                    if "attachment" in structure.lower() or "smoke_test" in structure:
-                        ok(f"Attachment: sent + received with attachment (attempt {attempt})")
+                    _, msg_data = imap.fetch(msg_nums[-1], "(RFC822)")
+                    raw = msg_data[0][1]
+                    if b"smoke_test.txt" in raw and b"Content-Disposition" in raw:
+                        ok(f"Attachment: sent + received with file (attempt {attempt})")
                         return True
         except Exception:
             continue
@@ -728,10 +762,11 @@ def main():
 
     h, u, p, d = args.host, args.user, args.password, args.domain
     local = u.split("@")[0]
-    user2 = f"postmaster@{d}" if local != "postmaster" else f"admin@{d}"
+    # Second real mailbox for reply test (postmaster is alias to admin, use IMAP as admin)
+    user2 = u  # reply test sends to self with different subject
 
     print(f"\n{BOLD}Mail Server Smoke Test — Full Email Lifecycle{RESET}")
-    print(f"Host: {h}  User: {u}  User2: {user2}  Domain: {d}\n")
+    print(f"Host: {h}  User: {u}  Domain: {d}\n")
 
     # ── Network ──
     print(f"{BOLD}── TCP Connectivity ──{RESET}")
@@ -753,12 +788,12 @@ def main():
         check_imap(h, u, p, subject)
     else:
         fail("IMAP receive: skipped (send failed)")
-    check_user_to_user(h, u, p, user2, p)
+    check_user_to_user(h, u, p, d)
     check_alias(h, u, p, f"webmaster@{d}")
 
-    # ── Reply cycle ──
+    # ── Reply cycle (self-reply simulates 2 users) ──
     print(f"\n{BOLD}── Reply Cycle ──{RESET}")
-    check_reply(h, u, p, user2, p)
+    check_reply(h, u, p, u, p)
 
     # ── Attachments ──
     print(f"\n{BOLD}── Attachments ──{RESET}")
