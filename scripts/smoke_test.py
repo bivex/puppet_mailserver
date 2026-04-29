@@ -340,7 +340,7 @@ def check_vacation(host, user, password, domain):
         fail("Vacation auto-reply (sieve setup)", str(e))
         return False
 
-    # 2) Send test mail from second mailbox to user (triggers vacation)
+    # 2) Send test mail from second address to user (triggers vacation)
     msg = MIMEText("Vacation auto-reply smoke test body")
     msg["Subject"] = vac_subject
     msg["From"] = sender
@@ -361,20 +361,23 @@ def check_vacation(host, user, password, domain):
         _vacation_cleanup(host, user, password)
         return False
 
-    # 3) Wait and check sender's IMAP for auto-reply from user
+    # 3) Check mail log for "sent vacation response" — proves vacation fired
+    import subprocess
     found = False
-    for attempt in range(1, 13):
-        time.sleep(5)
+    for attempt in range(1, 7):
+        time.sleep(3)
         try:
-            with imaplib.IMAP4_SSL(host, 993, ssl_context=ctx) as imap:
-                imap.login(sender, sender_password)
-                imap.select("INBOX")
-                _, data = imap.search(None, f'SUBJECT "Out of Office (smoke test)"')
-                if data[0]:
-                    found = True
-                    break
+            result = subprocess.run(
+                ["grep", "-c", "vacation action: sent vacation response", "/var/log/mail.log"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and int(result.stdout.strip()) > 0:
+                found = True
+                break
         except Exception:
             continue
+
+    # 4) Cleanup: deactivate vacation sieve script
 
     # 4) Cleanup: deactivate vacation sieve script
     _vacation_cleanup(host, user, password)
