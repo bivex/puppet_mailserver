@@ -15,6 +15,8 @@ $ssl_key    = '/etc/ssl/private/mail.key'
 $db_pass    = 'maildbpass123'
 $rc_db_pass = 'RcMail2024!Db'
 $admin_pass = 'adminpass123'
+# Generate: php -r 'echo password_hash("YOUR_SETUP_PASSWORD", PASSWORD_DEFAULT);'
+$setup_pw_hash = '$2y$10$pKArZkfRRKyjr0zp3S1GauEPynBCCLXB1R05DpxrMkAXayH.EUqZ6'
 
 # =====================================================
 # PACKAGES
@@ -114,37 +116,45 @@ exec { 'create-mail-db':
   require => [Exec['wait-mariadb'], Exec['harden-mariadb']],
 }
 
+# Helper script: generates SHA512-CRYPT hashes via PHP crypt() and seeds DB
+file { '/usr/local/bin/seed-mail-db.php':
+  ensure  => file,
+  content => "<?php
+\$domain = '${domain}';
+\$pass   = '${admin_pass}';
+\$salt   = substr(md5(mt_rand()), 0, 16);
+\$hash   = crypt(\$pass, '\$6\$' . \$salt . '\$');
+
+\$sql = \"INSERT IGNORE INTO domain (domain,description,aliases,mailboxes,quota,transport,backupmx,created,modified,active)
+  VALUES ('\$domain','Default domain',0,0,0,'virtual',0,NOW(),NOW(),1);
+INSERT IGNORE INTO admin (username,password,superadmin,created,modified,active)
+  VALUES ('admin@\$domain', '\$hash', 1, NOW(), NOW(), 1);
+INSERT IGNORE INTO domain_admins (username,domain,created,active)
+  VALUES ('admin@\$domain','ALL',NOW(),1);
+INSERT IGNORE INTO mailbox (username,password,name,maildir,quota,local_part,domain,created,modified,active)
+  VALUES ('admin@\$domain', '\$hash', 'Admin', '\$domain/admin/', 1073741824, 'admin', '\$domain', NOW(), NOW(), 1);
+INSERT IGNORE INTO mailbox (username,password,name,maildir,quota,local_part,domain,created,modified,active)
+  VALUES ('postmaster@\$domain', '\$hash', 'Postmaster', '\$domain/postmaster/', 1073741824, 'postmaster', '\$domain', NOW(), NOW(), 1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('abuse@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('hostmaster@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('postmaster@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('webmaster@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('info@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);
+INSERT IGNORE INTO alias (address,goto,domain,created,modified,active) VALUES ('support@\$domain','admin@\$domain','\$domain',NOW(),NOW(),1);\";
+echo \$sql;
+",
+  mode    => '0600',
+  owner   => 'root',
+}
+
 # Seed PostfixAdmin tables: domain, admin, mailbox, aliases
 # Password scheme: SHA512-CRYPT — must match $CONF['encrypt'] and Dovecot default_pass_scheme
-# maildir format: domain/user/ (matches domain_path=YES, domain_in_mailbox=NO)
+# Uses PHP crypt() for portable hash generation
 exec { 'seed-mail-db':
-  command => "mysql mailserver -e \"
-INSERT IGNORE INTO domain (domain, description, aliases, mailboxes, quota, transport, backupmx, created, modified, active)
-  VALUES ('${domain}', 'Default domain', 0, 0, 0, 'virtual', 0, NOW(), NOW(), 1);
-INSERT IGNORE INTO admin (username, password, superadmin, created, modified, active)
-  VALUES ('admin@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$6\\\$', SUBSTRING(MD5(RAND()), -16))), 1, NOW(), NOW(), 1);
-INSERT IGNORE INTO domain_admins (username, domain, created, active)
-  VALUES ('admin@${domain}', 'ALL', NOW(), 1);
-INSERT IGNORE INTO mailbox (username, password, name, maildir, quota, local_part, domain, created, modified, active)
-  VALUES ('admin@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$6\\\$', SUBSTRING(MD5(RAND()), -16))), 'Admin', '${domain}/admin/', 1073741824, 'admin', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO mailbox (username, password, name, maildir, quota, local_part, domain, created, modified, active)
-  VALUES ('postmaster@${domain}', ENCRYPT('${admin_pass}', CONCAT('\\\$6\\\$', SUBSTRING(MD5(RAND()), -16))), 'Postmaster', '${domain}/postmaster/', 1073741824, 'postmaster', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('abuse@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('hostmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('postmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('webmaster@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('info@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-INSERT IGNORE INTO alias (address, goto, domain, created, modified, active)
-  VALUES ('support@${domain}', 'admin@${domain}', '${domain}', NOW(), NOW(), 1);
-\"",
+  command => "php /usr/local/bin/seed-mail-db.php | mysql mailserver",
   unless  => "mysql -umailuser -p${db_pass} -e \"SELECT 1 FROM mailserver.domain WHERE domain='${domain}'\" 2>/dev/null | grep -q 1",
   path    => ['/usr/bin'],
-  require => Exec['postfixadmin-schema'],
+  require => [Exec['postfixadmin-schema'], File['/usr/local/bin/seed-mail-db.php']],
 }
 
 # Create mailbox directories on disk
@@ -904,7 +914,7 @@ CREATE TABLE IF NOT EXISTS totp (
 # PostfixAdmin config: enable 2FA
 file { '/etc/postfixadmin/config.local.php':
   ensure  => file,
-  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'php_crypt:SHA512';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'NO';\n\$CONF['password_expiration'] = 'NO';\n\n// 2FA / TOTP\n\$CONF['totp'] = 'YES';\n\$CONF['totp_admin'] = 'YES';\n\$CONF['totp_user'] = 'YES';\n?>",
+  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'php_crypt:SHA512';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'NO';\n\$CONF['password_expiration'] = 'NO';\n\n// Setup password — required for /admin/setup.php\n\$CONF['setup_password'] = '${setup_pw_hash}';\n\n// 2FA / TOTP\n\$CONF['totp'] = 'YES';\n\$CONF['totp_admin'] = 'YES';\n\$CONF['totp_user'] = 'YES';\n?>",
   require => Package['postfixadmin'],
 }
 
