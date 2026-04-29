@@ -900,6 +900,14 @@ exec { 'install-roundcube-2fa-plugin':
   require => Package['roundcube'],
 }
 
+# Remove duplicate from /usr/share if roundcube package ships it there
+exec { 'remove-duplicate-2fa-plugin':
+  command => 'rm -rf /usr/share/roundcube/plugins/twofactor_gauthenticator',
+  onlyif  => 'test -d /usr/share/roundcube/plugins/twofactor_gauthenticator',
+  path    => ['/bin', '/usr/bin'],
+  require => Exec['install-roundcube-2fa-plugin'],
+}
+
 # Patch: add 2FA link to Roundcube settings navigation
 file { '/usr/local/bin/patch-roundcube-2fa-nav.py':
   ensure  => file,
