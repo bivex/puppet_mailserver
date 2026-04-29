@@ -900,33 +900,62 @@ exec { 'install-roundcube-2fa-plugin':
 }
 
 # Patch: add 2FA link to Roundcube settings navigation
-exec { 'patch-roundcube-2fa-nav':
-  command => "python3 -c \"
+file { '/usr/local/bin/patch-roundcube-2fa-nav.py':
+  ensure  => file,
+  content => "#!/usr/bin/env python3
+import sys
+
 f = '/usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php'
-with open(f, 'r') as fh: content = fh.read()
-old = \\\"\\\$this->add_texts('localization/', true);\\\"
-new = \\\"\\\"\\\"\\\$this->add_texts('localization/', true);
+with open(f, 'r') as fh:
+    content = fh.read()
+
+if 'settings_actions' in content:
+    print('Already patched')
+    sys.exit(0)
+
+old = \"\$this->add_texts('localization/', true);\"
+new = \"\"\"\$this->add_texts('localization/', true);
 
         // Add 2FA link to settings navigation
-        \\\$this->add_hook('settings_actions', function(\\\$args) {
-            \\\$args['actions'][] = array(
-                'action' => 'plugin.twofactor_gauthenticator',
-                'label' => '2FA',
-                'type' => 'link',
-                'domain' => 'twofactor_gauthenticator',
-            );
-            return \\\$args;
-        });\\\"\\\"\\\"
+        \$this->add_hook('settings_actions', [\$this, 'settings_actions']);\"\"\"
+
 if old in content:
     content = content.replace(old, new, 1)
-    with open(f, 'w') as fh: fh.write(content)
-    print('Patched')
 else:
-    print('Already patched')
-\"",
+    print('Pattern not found')
+    sys.exit(1)
+
+# Add settings_actions method before closing brace
+method = '''
+    function settings_actions(\$args)
+    {
+        \$this->add_texts('localization/');
+        \$args['actions'][] = [
+            'action' => 'twofactor_gauthenticator',
+            'class'  => 'twofactor',
+            'label'  => 'twofactor_gauthenticator',
+            'title'  => 'twofactor_gauthenticator',
+            'domain' => 'twofactor_gauthenticator',
+        ];
+        return \$args;
+    }
+'''
+last_brace = content.rfind('}')
+content = content[:last_brace] + method + '\\n}'
+
+with open(f, 'w') as fh:
+    fh.write(content)
+print('Patched successfully')
+",
+  mode    => '0755',
+  owner   => 'root',
+}
+
+exec { 'patch-roundcube-2fa-nav':
+  command => 'python3 /usr/local/bin/patch-roundcube-2fa-nav.py',
   unless  => "grep -q 'settings_actions' /usr/share/roundcube/plugins/twofactor_gauthenticator/twofactor_gauthenticator.php",
   path    => ['/usr/bin'],
-  require => Exec['install-roundcube-2fa-plugin'],
+  require => [Exec['install-roundcube-2fa-plugin'], File['/usr/local/bin/patch-roundcube-2fa-nav.py']],
 }
 
 file { '/etc/roundcube/plugins/twofactor_gauthenticator':
