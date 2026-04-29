@@ -828,8 +828,42 @@ file { '/var/lib/roundcube/temp':
 # Roundcube managesieve plugin config — vacation + forward + filters
 file { '/etc/roundcube/plugins/managesieve/config.inc.php':
   ensure  => file,
-  content => "<?php\n\$config['managesieve_host'] = 'localhost';\n\$config['managesieve_port'] = 4190;\n\$config['managesieve_auth_type'] = '';\n\n// Vacation (Out of Office) — enable with sensible defaults\n\$config['managesieve_vacation'] = 1;\n\$config['managesieve_vacation_interval'] = 1;\n\$config['managesieve_vacation_addresses_init'] = true;\n\$config['managesieve_vacation_from_init'] = true;\n\n// Forward / redirect\n\$config['managesieve_forward'] = 1;\n\n// Default sieve script for new users\n\$config['managesieve_default'] = '/etc/dovecot/sieve/default.sieve';\n\n// Script name on server\n\$config['managesieve_script_name'] = 'managesieve';\n\$config['managesieve_filename_extension'] = '.sieve';\n\$config['managesieve_debug'] = false;\n\$config['managesieve_replace_delimiter'] = '';\n\$config['managesieve_disabled_extensions'] = [];\n\$config['managesieve_kolab_master'] = false;\n\n// Headers shown in filter rules\n\$config['managesieve_default_headers'] = ['Subject', 'From', 'To', 'Cc'];\n?>",
+  content => "<?php\n\$config['managesieve_host'] = 'localhost';\n\$config['managesieve_port'] = 4190;\n\$config['managesieve_auth_type'] = '';\n\n// Vacation (Out of Office) — enable with sensible defaults\n\$config['managesieve_vacation'] = 1;\n\$config['managesieve_vacation_interval'] = 1;\n\$config['managesieve_vacation_addresses_init'] = true;\n\$config['managesieve_vacation_from_init'] = true;\n\n// Vacation form defaults (requires patch to rcube_sieve_vacation.php)\n\$config['managesieve_vacation_default_subject'] = 'Out of Office';\n\$config['managesieve_vacation_default_body'] = 'I am currently out of the office and will respond to your email upon my return.\\n\\nFor urgent matters, please contact support@${domain}.';\n\n// Forward / redirect\n\$config['managesieve_forward'] = 1;\n\n// Default sieve script for new users\n\$config['managesieve_default'] = '/etc/dovecot/sieve/default.sieve';\n\n// Script name on server\n\$config['managesieve_script_name'] = 'managesieve';\n\$config['managesieve_filename_extension'] = '.sieve';\n\$config['managesieve_debug'] = false;\n\$config['managesieve_replace_delimiter'] = '';\n\$config['managesieve_disabled_extensions'] = [];\n\$config['managesieve_kolab_master'] = false;\n\n// Headers shown in filter rules\n\$config['managesieve_default_headers'] = ['Subject', 'From', 'To', 'Cc'];\n?>",
   require => Package['roundcube-plugins'],
+}
+
+# Patch managesieve vacation form with default subject/body from config
+$vacation_patch = '/usr/share/roundcube/plugins/managesieve/lib/Roundcube/rcube_sieve_vacation.php'
+exec { 'patch-managesieve-vacation':
+  command => "python3 -c \"
+f = '${vacation_patch}'
+with open(f, 'r') as fh: content = fh.read()
+old = '''            if (\\\$from_addr) {
+                \\\$default_identity = \\\$this->rc->user->list_emails(true);
+                \\\$this->vacation['from'] = format_email_recipient(\\\$default_identity['email'], \\\$default_identity['name']);
+            }
+        }'''
+new = '''            if (\\\$from_addr) {
+                \\\$default_identity = \\\$this->rc->user->list_emails(true);
+                \\\$this->vacation['from'] = format_email_recipient(\\\$default_identity['email'], \\\$default_identity['name']);
+            }
+            if (empty(\\\$this->vacation['subject'])):
+                \\\$this->vacation['subject'] = \\\$this->rc->config->get('managesieve_vacation_default_subject', 'Out of Office');
+            endif;
+            if (empty(\\\$this->vacation['reason'])):
+                \\\$this->vacation['reason'] = \\\$this->rc->config->get('managesieve_vacation_default_body', 'I am currently out of the office.');
+            endif;
+        }'''
+if old in content:
+    content = content.replace(old, new, 1)
+    with open(f, 'w') as fh: fh.write(content)
+    print('Patched')
+else:
+    print('Already patched or pattern changed')
+\"",
+  unless  => "grep -q 'managesieve_vacation_default_subject' ${vacation_patch}",
+  path    => ['/usr/bin'],
+  require => [File['/etc/roundcube/plugins/managesieve/config.inc.php'], Package['roundcube-plugins']],
 }
 
 # Roundcube password plugin — allow users to change mail password
