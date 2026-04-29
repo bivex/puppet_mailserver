@@ -823,13 +823,97 @@ file { '/etc/roundcube/plugins/managesieve/config.inc.php':
 }
 
 # =====================================================
-# POSTFIXADMIN CONFIG
+# 2FA — Roundcube TOTP (twofactor_gauthenticator)
 # =====================================================
+
+# SQL table for storing TOTP secrets per user
+exec { 'roundcube-2fa-table':
+  command => "mysql roundcube -e \"
+CREATE TABLE IF NOT EXISTS twofactor_gauthenticator (
+  user_id int(10) UNSIGNED NOT NULL,
+  secret varchar(80) NOT NULL DEFAULT '',
+  recovery_codes text,
+  created datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id),
+  CONSTRAINT tfk_user_id FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+\"",
+  unless  => "mysql -e \"SELECT 1 FROM information_schema.tables WHERE table_schema='roundcube' AND table_name='twofactor_gauthenticator'\" 2>/dev/null | grep -q 1",
+  path    => ['/usr/bin'],
+  require => Exec['roundcube-schema'],
+}
+
+file { '/etc/roundcube/plugins/twofactor_gauthenticator':
+  ensure => directory,
+  require => Package['roundcube-plugins'],
+}
+
+file { '/etc/roundcube/plugins/twofactor_gauthenticator/config.inc.php':
+  ensure  => file,
+  content => "<?php
+// Roundcube TOTP 2FA configuration
+\$config['twofactor_gauthenticator'] = true;
+
+// Force 2FA setup for all users (set false to make it optional)
+\$config['force_enrollment'] = false;
+
+// Require 2FA on every login (false = remember trusted browsers)
+\$config['force_2fa'] = true;
+
+// Number of recovery codes generated per user
+\$config['recovery_codes_count'] = 8;
+
+// TOTP parameters (RFC 6238)
+\$config['secret_length'] = 16;
+\$config['totp_period'] = 30;
+\$config['totp_digits'] = 6;
+\$config['totp_digest'] = 'sha1';
+
+// Grace period (seconds) — allow previous/next TOTP window
+\$config['totp_window'] = 1;
+
+// Database-backed secrets (requires twofactor_gauthenticator table)
+\$config['db_backend'] = true;
+?>",
+  require => File['/etc/roundcube/plugins/twofactor_gauthenticator'],
+}
+
+# =====================================================
+# 2FA — PostfixAdmin TOTP via twofactor_gauthenticator
+# =====================================================
+
+# PostfixAdmin stores TOTP in its own 'totp' table
+exec { 'postfixadmin-totp-table':
+  command => "mysql mailserver -e \"
+CREATE TABLE IF NOT EXISTS totp (
+  id int(11) NOT NULL AUTO_INCREMENT,
+  username varchar(255) NOT NULL,
+  secret varchar(255) NOT NULL,
+  recovery_codes text,
+  enabled tinyint(1) NOT NULL DEFAULT 0,
+  created datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+\"",
+  unless  => "mysql -e \"SELECT 1 FROM information_schema.tables WHERE table_schema='mailserver' AND table_name='totp'\" 2>/dev/null | grep -q 1",
+  path    => ['/usr/bin'],
+  require => Exec['postfixadmin-schema'],
+}
+
+# PostfixAdmin config: enable 2FA
 file { '/etc/postfixadmin/config.local.php':
   ensure  => file,
-  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'php_crypt:SHA512';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'NO';\n\$CONF['password_expiration'] = 'NO';\n?>",
+  content => "<?php\n\$CONF['configured'] = true;\n\$CONF['encrypt'] = 'php_crypt:SHA512';\n\$CONF['database_type'] = 'mysqli';\n\$CONF['database_host'] = 'localhost';\n\$CONF['database_user'] = 'mailuser';\n\$CONF['database_password'] = '${db_pass}';\n\$CONF['database_name'] = 'mailserver';\n\$CONF['admin_email'] = 'postmaster@${domain}';\n\$CONF['default_aliases'] = array('abuse' => 'admin@${domain}', 'hostmaster' => 'admin@${domain}', 'postmaster' => 'admin@${domain}', 'webmaster' => 'admin@${domain}');\n\$CONF['domain_path'] = 'YES';\n\$CONF['domain_in_mailbox'] = 'NO';\n\$CONF['mailbox_postcreation_script'] = 'sudo /usr/local/bin/postfixadmin-mailbox-postcreate.sh';\n\$CONF['fetchmail'] = 'NO';\n\$CONF['show_footer_text'] = 'NO';\n\$CONF['quota'] = 'YES';\n\$CONF['used_quotas'] = 'YES';\n\$CONF['new_quota_table'] = 'YES';\n\$CONF['vacation'] = 'NO';\n\$CONF['password_expiration'] = 'NO';\n\n// 2FA / TOTP\n\$CONF['totp'] = 'YES';\n\$CONF['totp_admin'] = 'YES';\n\$CONF['totp_user'] = 'YES';\n?>",
   require => Package['postfixadmin'],
 }
+
+# Rate-limit PostfixAdmin login page in Nginx (stricter for admin panel)
+# Already present: limit_req zone=login burst=5 nodelay on /admin location
+
+# =====================================================
+# POSTFIXADMIN SCHEMA
+# =====================================================
 
 # PostfixAdmin schema
 exec { 'postfixadmin-schema':
